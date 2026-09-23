@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <math.h>
+#include "EcgProcessing.h"
 #include "Pulse+SpO2/MAX30102_by_RF-master/algorithm_by_RF.h"
 
 // All timestamps are acquisition times, never display/SD write times.
@@ -57,44 +58,6 @@ struct PulseOxProcessor {
     spo2Valid = hrValid && sv;
     beatAvg = hrValid ? hr : 0;
     spo2 = spo2Valid ? oxygen : 0;
-  }
-};
-
-struct EcgBeatDetector {
-  float baseline = 0, filtered = 0, envelope = 20, bpm = 0;
-  uint32_t lastBeat = 0, lastSample = 0, start = 0;
-  int intervals = 0;
-  bool initialized = false, armed = true, quality = false;
-  void reset() { *this = EcgBeatDetector(); }
-  void expire(uint32_t now) {
-    if (lastSample && now - lastSample > 100) reset();
-    if (lastBeat && now - lastBeat > 2500) { bpm = 0; intervals = 0; }
-  }
-  void update(int raw, uint32_t now) {
-    if (raw < 150 || raw > 3950) { reset(); return; }
-    if (lastSample && now - lastSample > 20) reset();
-    if (!initialized) { baseline = raw; start = now; initialized = true; }
-    lastSample = now;
-    // 250 Hz: baseline rejection ~0.5 Hz, low-pass ~35 Hz. Display is relative.
-    baseline += 0.0124f * (raw - baseline);
-    filtered += 0.585f * ((raw - baseline) - filtered);
-    float amplitude = fabsf(filtered);
-    envelope = fmaxf(amplitude, envelope * 0.996f);
-    quality = now - start > 2000 && envelope > 12;
-    if (!quality) { bpm = 0; return; }
-    float threshold = fmaxf(12, envelope * 0.6f);
-    if (armed && amplitude > threshold && (!lastBeat || now - lastBeat > 300)) {
-      if (lastBeat) {
-        float rate = 60000.0f / (now - lastBeat);
-        if (rate >= 40 && rate <= 200) {
-          ++intervals;
-          if (intervals >= 2) bpm = bpm > 0 ? bpm * 0.7f + rate * 0.3f : rate;
-        } else { intervals = 0; bpm = 0; }
-      }
-      lastBeat = now; armed = false;
-    }
-    if (amplitude < threshold * 0.45f) armed = true;
-    expire(now);
   }
 };
 

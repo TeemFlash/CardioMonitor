@@ -40,6 +40,7 @@ enum StringID {
   S_RECORDING, S_SCALE, S_DIAGNOSTICS, S_WIFI_POWER, S_FORGET_WIFI,
   S_ON, S_OFF, S_COLLECTING, S_POOR_SIGNAL, S_SENSOR_MISSING, S_READY, S_CONFIRM,
   S_OLDER, S_NEWER, S_READING,
+  S_NOTCH, S_HR_AGREE, S_HR_DIFFER, S_HR_WAIT,
   S_COUNT
 };
 
@@ -148,7 +149,8 @@ static const char* const STR_EN[S_COUNT] = {
   "History", "HISTORY", "ECG history", "Pulse history", "SpO2 history",
   "No saved records", "No SD card", "Records", "Average",
   "SD recording", "ECG gain", "Device status", "Wi-Fi radio", "Forget network", "On", "Off", "Collecting signal...", "Check signal / keep still", "Sensor unavailable", "Signal accepted", "OK: confirm / BACK: cancel",
-  "Older records", "Newer records", "Reading SD..."
+  "Older records", "Newer records", "Reading SD...",
+  "Mains filter", "HR estimates agree", "HR differs: check sensors", "ECG + finger: compare HR"
 };
 
 static const char* const STR_RU[S_COUNT] = {
@@ -162,7 +164,8 @@ static const char* const STR_RU[S_COUNT] = {
   "История", "ИСТОРИЯ", "История ЭКГ", "История пульса", "История SpO2",
   "Нет сохранённых записей", "Нет SD-карты", "Записей", "Среднее",
   "Запись на SD", "Масштаб ЭКГ", "Состояние устройства", "Радио Wi-Fi", "Забыть сеть", "Вкл", "Выкл", "Сбор сигнала...", "Проверьте сигнал / не двигайтесь", "Датчик недоступен", "Сигнал принят", "OK: подтвердить / НАЗАД: отмена",
-  "Более ранние", "Более новые", "Чтение SD..."
+  "Более ранние", "Более новые", "Чтение SD...",
+  "Фильтр сети", "ЧСС датчиков согласуется", "ЧСС отличается: проверьте сигнал", "ЭКГ + палец: сравнение ЧСС"
 };
 
 static const char* const STR_KZ[S_COUNT] = {
@@ -176,7 +179,8 @@ static const char* const STR_KZ[S_COUNT] = {
   "Тарих", "ТАРИХ", "ЭКГ тарихы", "Пульс тарихы", "SpO2 тарихы",
   "Сақталған жазба жоқ", "SD-карта жоқ", "Жазбалар", "Орташа",
   "SD жазбасы", "ЭКГ масштабы", "Құрылғы күйі", "Wi-Fi радиосы", "Желіні ұмыту", "Қосулы", "Өшірулі", "Сигнал жиналуда...", "Сигналды тексеріңіз", "Сенсор қолжетімсіз", "Сигнал қабылданды", "OK: растау / АРТҚА: бас тарту",
-  "Ескі жазбалар", "Жаңа жазбалар", "SD оқылуда..."
+  "Ескі жазбалар", "Жаңа жазбалар", "SD оқылуда...",
+  "Желі сүзгісі", "ЖСЖ сәйкес келеді", "ЖСЖ бөлек: сигналды тексеріңіз", "ЭКГ + саусақ: ЖСЖ салыстыру"
 };
 
 static const char* const* const LANG_TABLE[LANG_COUNT] = { STR_EN, STR_RU, STR_KZ };
@@ -204,9 +208,13 @@ int selectedItem = 0;
 
 // Настройки
 int settingsSelected = 0;
-const int SETTINGS_COUNT = 7;
+const int SETTINGS_COUNT = 8;
 bool recordingEnabled = true, wifiEnabled = true;
 uint8_t ecgGain = 1;
+uint8_t ecgMains = 50;
+EcgPlotBuffer ecgPlot;
+uint32_t previousEcgBin=0;
+bool ecgPlotConnected=false;
 bool sdError = false;
 uint32_t sessionCommand = 0, sessionStart = 0;
 uint32_t lastUi = 0, lastHeader = 0;
@@ -225,7 +233,7 @@ uint32_t historyTotalRows = 0;
 
 // ЭКГ
 const int GRAPH_TOP    = HEADER_H + 4;
-const int GRAPH_BOTTOM = 172;
+const int GRAPH_BOTTOM = 148;
 int graphX = 0;
 int prevEcgY = (GRAPH_TOP + GRAPH_BOTTOM) / 2;
 
@@ -507,23 +515,39 @@ void enterEcgScreen() {
   tft.fillScreen(COL_BG); drawHeader(S_ECG_TITLE);
   graphX = 0; prevEcgY = (GRAPH_TOP + GRAPH_BOTTOM)/2;
   drawGraphGrid(GRAPH_TOP, GRAPH_BOTTOM);
-  openLogFile("ecg", "millis_ms,adc_code,filtered_relative,signal_ok,bpm");
-  sessionStart=millis(); sensorCommand.store(sessionCommand);
+  openLogFile("ecg", "millis_ms,kind,adc_code,filtered_relative,signal_ok,ir,red,ppg_valid,spo2_valid,correlation,ppg_bpm,spo2,ecg_bpm");
+  if(logFileOpen) {
+    char metadata[96];
+    snprintf(metadata,sizeof(metadata),"# filters=HP0.5_LP40,notch=%u,nominal_ecg_hz=250,ppg_hz=25\n",ecgMains);
+    appendLog(metadata);
+  }
+  sessionStart=millis(); ecgPlot.reset(sessionStart); ecgPlotConnected=false;
+  sensorCommand.store(sessionCommand);
 }
 
 void renderECG() {
-  if (graphHasSample) {
-    drawWaveColumn(GRAPH_TOP, GRAPH_BOTTOM, graphLow * (1 << ecgGain) * 0.10f,
-                   graphHigh * (1 << ecgGain) * 0.10f);
-    graphHasSample = false;
-  }
-  StringID state = (!sensorHealth.ads || !acquisitionStarted) ? S_SENSOR_MISSING :
-    (!ecgDetector.quality ? S_LEADS_OFF : S_READY);
-  drawMeasurementStatus(state, 190);
-  drawValue(14, 202, ecgDetector.bpm > 0 ? int(roundf(ecgDetector.bpm)) : -1, "bpm");
-  tft.setTextSize(1); tft.setTextColor(COL_TEXT_DIM, COL_BG);
-  tft.setCursor(144, 210); tft.printf("x%d", 1 << ecgGain);
-  drawRecBadge(266, 204, COL_BG, logFileOpen);
+  renderEcgWave();
+  static uint32_t lastNumbers=0;
+  if(millis()-lastNumbers<200) return;
+  lastNumbers=millis();
+  StringID state=(!sensorHealth.ads || !acquisitionStarted)?S_SENSOR_MISSING:
+    (ecgDetector.initialized && millis()-ecgDetector.start<3000?S_COLLECTING:
+      (ecgDetector.quality?S_READY:S_LEADS_OFF));
+  drawMeasurementStatus(state,164);
+  drawCompactMetric(14,"ECG bpm",ecgDetector.bpm>0?int(roundf(ecgDetector.bpm)):-1);
+  drawCompactMetric(119,"PPG bpm",poxProcessor.hrValid?poxProcessor.beatAvg:-1);
+  drawCompactMetric(224,"SpO2 %",poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1);
+  HeartRateAgreement agreement=compareHeartRates(ecgDetector.bpm,ecgDetector.quality,
+    poxProcessor.beatAvg,poxProcessor.hrValid);
+  StringID caption=agreement==HeartRateAgreement::Consistent?S_HR_AGREE:
+    (agreement==HeartRateAgreement::Different?S_HR_DIFFER:S_HR_WAIT);
+  tft.fillRect(10,207,306,18,COL_BG);
+  u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(agreement==HeartRateAgreement::Different?COL_WARN:COL_TEXT_DIM);
+  printFit(T(caption,currentLanguage),14,220,292);
+  tft.fillRect(12,228,248,12,COL_BG);
+  tft.setTextSize(1); tft.setTextColor(COL_TEXT_DIM,COL_BG); tft.setCursor(14,230);
+  tft.printf("0.2s/div  x%d  %uHz  rel.",1<<ecgGain,ecgMains);
+  drawRecBadge(266,225,COL_BG,logFileOpen);
 }
 
 // ============================================================
@@ -580,7 +604,7 @@ void renderSpo2Only() {
 void drawSettingsMenu() {
   tft.fillScreen(COL_BG); drawHeader(S_SETTINGS_TITLE);
   const StringID labels[] = {S_LANGUAGE, S_WIFI_LABEL, S_RECORDING, S_SCALE,
-                             S_DIAGNOSTICS, S_WIFI_POWER, S_FORGET_WIFI};
+                             S_DIAGNOSTICS, S_WIFI_POWER, S_FORGET_WIFI, S_NOTCH};
   StringID langNames[] = {S_LANG_NAME_EN, S_LANG_NAME_RU, S_LANG_NAME_KZ};
   int first = (settingsSelected / 4) * 4;
   for (int row=0; row<4 && first+row<SETTINGS_COUNT; ++row) {
@@ -594,6 +618,7 @@ void drawSettingsMenu() {
       case 4: value = "MAX30102 / ADS1115 / SD"; break;
       case 5: value = T(wifiEnabled ? S_ON : S_OFF,currentLanguage); break;
       case 6: value = prefs.getString("wifi_ssid", "--"); break;
+      case 7: value = ecgMains ? String(ecgMains)+" Hz" : T(S_OFF,currentLanguage); break;
     }
     int y=42+row*43; uint16_t bg=i==settingsSelected?COL_CARD_SEL:COL_CARD;
     tft.fillRoundRect(12,y,296,39,6,bg);
@@ -1090,6 +1115,9 @@ void onOk() {
       if (wifiEnabled) { WiFi.mode(WIFI_STA); connectSavedWifi(); }
       else { WiFi.disconnect(true); WiFi.mode(WIFI_OFF); }
       drawSettingsMenu();
+    } else if(settingsSelected==7) {
+      ecgMains=ecgMains==50?60:(ecgMains==60?0:50);
+      prefs.putUChar("mains",ecgMains); drawSettingsMenu();
     } else {
       currentScreen=SCR_FORGET; tft.fillScreen(COL_BG); drawHeader(S_FORGET_WIFI);
       u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT);
@@ -1189,6 +1217,8 @@ void setup() {
   recordingEnabled=prefs.getBool("record",true);
   wifiEnabled=prefs.getBool("wifi_on",true);
   ecgGain=prefs.getUChar("gain",1)%4;
+  ecgMains=prefs.getUChar("mains",50);
+  if(ecgMains!=50 && ecgMains!=60) ecgMains=0;
   SPI.begin(SPI_SCK,SPI_MISO,SPI_MOSI,TFT_CS);
   tft.begin(); tft.setSPISpeed(27000000); tft.setRotation(3); tft.setTextWrap(false);
   u8g2.begin(tft); drawSplash();
@@ -1294,7 +1324,7 @@ void appendLog(const char* row) {
   memcpy(logBuffer+logUsed,row,n); logUsed+=n;
 }
 void beginMeasurement(int mode) {
-  poxProcessor.reset(); ecgDetector.reset();
+  poxProcessor.reset(); ecgDetector.setMains(ecgMains);
   ppgBaselineInit=false; graphHasSample=false;
   sessionStart=millis();
   sessionCommand=((sessionCommand+4)&~3u)|uint32_t(mode);
@@ -1320,19 +1350,27 @@ void consumeSamples() {
     if(millis()-sample.ms>300) {
       poxProcessor.reset(); ecgDetector.reset(); graphHasSample=false; continue;
     }
-    char row[160], metric[20]="", secondary[20]="";
+    char row[192], metric[20]="", secondary[20]="";
     if(sample.kind==2) { poxProcessor.reset(); continue; }
     if(sample.kind==0 && currentScreen==SCR_ECG) {
       latestEcg=constrain(int(sample.a)*4095/26400,0,4095);
-      ecgDetector.update(latestEcg,sample.ms);
-      addGraphSample(ecgDetector.filtered);
+      ecgDetector.update(float(sample.a)*4095.0f/26400.0f,sample.ms);
+      ecgPlot.push(sample.ms,ecgDetector.filtered,ecgDetector.initialized);
       if(ecgDetector.bpm>0) snprintf(metric,sizeof(metric),"%.1f",ecgDetector.bpm);
-      snprintf(row,sizeof(row),"%lu,%lu,%.2f,%d,%s\n",(unsigned long)(sample.ms-sessionStart),
+      snprintf(row,sizeof(row),"%lu,ecg,%lu,%.2f,%d,,,,,,,,%s\n",(unsigned long)(sample.ms-sessionStart),
                (unsigned long)sample.a,ecgDetector.filtered,ecgDetector.quality,metric);
       appendLog(row);
     }
-    if(sample.kind==1 && (currentScreen==SCR_PULSE || currentScreen==SCR_SPO2)) {
+    if(sample.kind==1 && (currentScreen==SCR_PULSE || currentScreen==SCR_SPO2 || currentScreen==SCR_ECG)) {
       latestIr=sample.a; poxProcessor.update(sample.a,sample.b,sample.ms);
+      if(currentScreen==SCR_ECG) {
+        if(poxProcessor.hrValid) snprintf(metric,sizeof(metric),"%d",poxProcessor.beatAvg);
+        if(poxProcessor.spo2Valid) snprintf(secondary,sizeof(secondary),"%.1f",poxProcessor.spo2);
+        snprintf(row,sizeof(row),"%lu,ppg,,,,%lu,%lu,%d,%d,%.3f,%s,%s,\n",
+          (unsigned long)(sample.ms-sessionStart),(unsigned long)sample.a,(unsigned long)sample.b,
+          poxProcessor.hrValid,poxProcessor.spo2Valid,poxProcessor.correlation,metric,secondary);
+        appendLog(row); continue;
+      }
       if(poxProcessor.finger) {
         if(!ppgBaselineInit) { ppgBaseline=sample.a; ppgBaselineInit=true; }
         ppgBaseline+=0.12f*(sample.a-ppgBaseline);
@@ -1482,5 +1520,38 @@ void serviceHistoryScan() {
         String fileSwap=historyFiles[i]; historyFiles[i]=historyFiles[j]; historyFiles[j]=fileSwap;
       }
     }
+  }
+}
+
+void drawCompactMetric(int x,const char* label,int value) {
+  tft.fillRect(x,172,90,33,COL_BG);
+  tft.setTextSize(1); tft.setTextColor(COL_TEXT_DIM,COL_BG); tft.setCursor(x,173); tft.print(label);
+  tft.setTextSize(2); tft.setTextColor(COL_TEXT,COL_BG); tft.setCursor(x,187);
+  if(value>=0) tft.print(value); else tft.print("--");
+}
+void eraseEcgPlotColumn(int x) {
+  tft.drawFastVLine(x,GRAPH_TOP,GRAPH_BOTTOM-GRAPH_TOP,x%20==0?COL_GRID_V:COL_BG);
+  for(int y=GRAPH_TOP;y<GRAPH_BOTTOM;y+=20) tft.drawPixel(x,y,COL_GRID_H);
+}
+void renderEcgWave() {
+  EcgPlotColumn column;
+  for(int n=0;n<64 && ecgPlot.pop(column);++n) {
+    int x=column.bin%SCREEN_W;
+    bool adjacent=ecgPlotConnected && column.bin-previousEcgBin==1;
+    if(ecgPlotConnected && column.bin-previousEcgBin>1) {
+      uint32_t distance=column.bin-previousEcgBin;
+      if(distance>=SCREEN_W) drawGraphGrid(GRAPH_TOP,GRAPH_BOTTOM);
+      else for(uint32_t i=1;i<distance;++i) eraseEcgPlotColumn((previousEcgBin+i)%SCREEN_W);
+    }
+    eraseEcgPlotColumn(x); eraseEcgPlotColumn((x+1)%SCREEN_W);
+    if(column.valid) {
+      float scale=(1<<ecgGain)*0.1f;
+      int y1=constrain(int((GRAPH_TOP+GRAPH_BOTTOM)/2-column.high*scale),GRAPH_TOP+1,GRAPH_BOTTOM-2);
+      int y2=constrain(int((GRAPH_TOP+GRAPH_BOTTOM)/2-column.low*scale),GRAPH_TOP+1,GRAPH_BOTTOM-2);
+      int mid=(y1+y2)/2;
+      if(adjacent && x) tft.drawLine(x-1,prevEcgY,x,mid,COL_ECG_LINE);
+      tft.drawFastVLine(x,y1,max(1,y2-y1+1),COL_ECG_LINE); prevEcgY=mid;
+    }
+    previousEcgBin=column.bin; ecgPlotConnected=column.valid;
   }
 }
