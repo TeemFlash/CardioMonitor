@@ -19,9 +19,8 @@ __pycache__/
 *.jks
 *.keystore
 key.properties
-# Personal measurements: only the upstream synthetic example belongs in Git
+# Personal measurements stay local
 *.csv
-!Monitor soft/Pulse+SpO2/MAX30102_by_RF-master/ExpectedGoodQualitySignals.csv
 
 # Keep personal ECG exports and plots local
 **/measurements/

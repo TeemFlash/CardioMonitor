@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a valid Arduino sketch without compiling legacy standalone examples."""
+"""Stage the firmware as a self-contained Arduino sketch from explicit sources."""
 import argparse
 from pathlib import Path
 import shutil
@@ -14,7 +14,8 @@ args = p.parse_args()
 out = args.output.resolve()
 sketch = out / 'MedicalMonitor'
 sketch.mkdir(parents=True, exist_ok=True)
-for name in ['MedicalMonitor.ino', 'SignalProcessing.h', 'EcgProcessing.h', 'Acquisition.h', 'rf_algorithm.cpp']:
+for name in ['MedicalMonitor.ino', 'SignalProcessing.h', 'EcgProcessing.h', 'Acquisition.h',
+             'HistoryAnalysis.h', 'HistoryText.h', 'PpgAutoExposure.h', 'rf_algorithm.cpp']:
     shutil.copy2(root / name, sketch / name)
 rf = Path('Pulse+SpO2/MAX30102_by_RF-master')
 (sketch / rf).mkdir(parents=True, exist_ok=True)

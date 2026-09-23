@@ -15,6 +15,8 @@
 #include <SD.h>
 #include <math.h>
 #include "SignalProcessing.h"
+#include "HistoryAnalysis.h"
+#include "HistoryText.h"
 
 // ============================================================
 // ВАЖНО ДЛЯ Arduino IDE: перечисления Language и StringID должны
@@ -41,6 +43,7 @@ enum StringID {
   S_ON, S_OFF, S_COLLECTING, S_POOR_SIGNAL, S_SENSOR_MISSING, S_READY, S_CONFIRM,
   S_OLDER, S_NEWER, S_READING,
   S_NOTCH, S_HR_AGREE, S_HR_DIFFER, S_HR_WAIT,
+  S_AUTO_PPG, S_PPG_TUNING, S_PPG_WEAK, S_PPG_CLIPPED, S_PPG_UNSTABLE,
   S_COUNT
 };
 
@@ -150,7 +153,8 @@ static const char* const STR_EN[S_COUNT] = {
   "No saved records", "No SD card", "Records", "Average",
   "SD recording", "ECG gain", "Device status", "Wi-Fi radio", "Forget network", "On", "Off", "Collecting signal...", "Check signal / keep still", "Sensor unavailable", "Signal accepted", "OK: confirm / BACK: cancel",
   "Older records", "Newer records", "Reading SD...",
-  "Mains filter", "HR estimates agree", "HR differs: check sensors", "ECG + finger: compare HR"
+  "Mains filter", "HR estimates agree", "HR differs: check sensors", "ECG + finger: compare HR",
+  "MAX30102 auto LED", "Adjusting optical signal...", "Weak signal: adjust finger", "Signal clipped: adjust finger", "Unstable signal: keep still"
 };
 
 static const char* const STR_RU[S_COUNT] = {
@@ -165,7 +169,8 @@ static const char* const STR_RU[S_COUNT] = {
   "Нет сохранённых записей", "Нет SD-карты", "Записей", "Среднее",
   "Запись на SD", "Масштаб ЭКГ", "Состояние устройства", "Радио Wi-Fi", "Забыть сеть", "Вкл", "Выкл", "Сбор сигнала...", "Проверьте сигнал / не двигайтесь", "Датчик недоступен", "Сигнал принят", "OK: подтвердить / НАЗАД: отмена",
   "Более ранние", "Более новые", "Чтение SD...",
-  "Фильтр сети", "ЧСС датчиков согласуется", "ЧСС отличается: проверьте сигнал", "ЭКГ + палец: сравнение ЧСС"
+  "Фильтр сети", "ЧСС датчиков согласуется", "ЧСС отличается: проверьте сигнал", "ЭКГ + палец: сравнение ЧСС",
+  "Автонастройка MAX30102", "Настройка оптического сигнала...", "Слабый сигнал: поправьте палец", "Перегрузка: поправьте палец", "Сигнал нестабилен: не двигайтесь"
 };
 
 static const char* const STR_KZ[S_COUNT] = {
@@ -180,7 +185,8 @@ static const char* const STR_KZ[S_COUNT] = {
   "Сақталған жазба жоқ", "SD-карта жоқ", "Жазбалар", "Орташа",
   "SD жазбасы", "ЭКГ масштабы", "Құрылғы күйі", "Wi-Fi радиосы", "Желіні ұмыту", "Қосулы", "Өшірулі", "Сигнал жиналуда...", "Сигналды тексеріңіз", "Сенсор қолжетімсіз", "Сигнал қабылданды", "OK: растау / АРТҚА: бас тарту",
   "Ескі жазбалар", "Жаңа жазбалар", "SD оқылуда...",
-  "Желі сүзгісі", "ЖСЖ сәйкес келеді", "ЖСЖ бөлек: сигналды тексеріңіз", "ЭКГ + саусақ: ЖСЖ салыстыру"
+  "Желі сүзгісі", "ЖСЖ сәйкес келеді", "ЖСЖ бөлек: сигналды тексеріңіз", "ЭКГ + саусақ: ЖСЖ салыстыру",
+  "MAX30102 автобаптау", "Оптикалық сигнал бапталуда...", "Әлсіз сигнал: саусақты түзетіңіз", "Сигнал артық: саусақты түзетіңіз", "Сигнал тұрақсыз: қозғалмаңыз"
 };
 
 static const char* const* const LANG_TABLE[LANG_COUNT] = { STR_EN, STR_RU, STR_KZ };
@@ -208,7 +214,7 @@ int selectedItem = 0;
 
 // Настройки
 int settingsSelected = 0;
-const int SETTINGS_COUNT = 8;
+const int SETTINGS_COUNT = 9;
 bool recordingEnabled = true, wifiEnabled = true;
 uint8_t ecgGain = 1;
 uint8_t ecgMains = 50;
@@ -217,6 +223,8 @@ uint32_t previousEcgBin=0;
 bool ecgPlotConnected=false;
 bool sdError = false;
 uint32_t sessionCommand = 0, sessionStart = 0;
+uint16_t activePpgEpoch=0;
+bool havePpgEpoch=false;
 uint32_t lastUi = 0, lastHeader = 0;
 int latestEcg = 2048;
 uint32_t latestIr = 0;
@@ -227,9 +235,16 @@ char logBuffer[4096];
 size_t logUsed = 0;
 uint32_t lastLogFlush = 0;
 File historyReader;
-double historySum = 0;
 bool historyLoading = false;
-uint32_t historyTotalRows = 0;
+cardio::HistoryAnalysis historyAnalysis;
+cardio::HistoryCsvStream historyCsv(historyAnalysis);
+size_t historyExpectedBytes = 0, historyBytesRead = 0;
+uint8_t historyTab = 0; // Summary, Analysis, Help; OK cycles tabs.
+bool historyContextPending = false, historyAdultRest = false;
+bool historyContextChosen = false;
+uint8_t historyContextChoice = 1; // Never assume an adult resting recording.
+unsigned historyTextScroll = 0, historyTextLines = 0, historyTextCursor = 0;
+constexpr unsigned HISTORY_TEXT_ROWS = 11;
 
 // ЭКГ
 const int GRAPH_TOP    = HEADER_H + 4;
@@ -282,8 +297,6 @@ int historyFileCount = 0;
 int historyListSelected = 0;
 int historyListScroll = 0;
 String historyDetailFile;
-int historyDetailRecords = 0;
-float historyDetailAvg = 0;
 
 // ============================================================
 // 5. МЕЛКИЕ УТИЛИТЫ
@@ -454,6 +467,9 @@ void openLogFile(const char* prefix, const char* header) {
     sdError = true; sdAvailable = false; if (logFile) logFile.close(); return;
   }
   logFileOpen = true; lastLogFlush = millis();
+  char metadata[80];
+  snprintf(metadata,sizeof(metadata),"# ppg_auto=%u,default_led=60,led_limit=100\n",ppgAutoEnabled.load()?1:0);
+  appendLog(metadata);
 }
 
 // ============================================================
@@ -541,6 +557,8 @@ void renderECG() {
     poxProcessor.beatAvg,poxProcessor.hrValid);
   StringID caption=agreement==HeartRateAgreement::Consistent?S_HR_AGREE:
     (agreement==HeartRateAgreement::Different?S_HR_DIFFER:S_HR_WAIT);
+  if(agreement==HeartRateAgreement::Unavailable && ppgAutoEnabled.load() &&
+     sensorHealth.exposure!=ppg::ExposureState::Stable) caption=pulseState();
   tft.fillRect(10,207,306,18,COL_BG);
   u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(agreement==HeartRateAgreement::Different?COL_WARN:COL_TEXT_DIM);
   printFit(T(caption,currentLanguage),14,220,292);
@@ -604,7 +622,7 @@ void renderSpo2Only() {
 void drawSettingsMenu() {
   tft.fillScreen(COL_BG); drawHeader(S_SETTINGS_TITLE);
   const StringID labels[] = {S_LANGUAGE, S_WIFI_LABEL, S_RECORDING, S_SCALE,
-                             S_DIAGNOSTICS, S_WIFI_POWER, S_FORGET_WIFI, S_NOTCH};
+                             S_DIAGNOSTICS, S_WIFI_POWER, S_FORGET_WIFI, S_NOTCH, S_AUTO_PPG};
   StringID langNames[] = {S_LANG_NAME_EN, S_LANG_NAME_RU, S_LANG_NAME_KZ};
   int first = (settingsSelected / 4) * 4;
   for (int row=0; row<4 && first+row<SETTINGS_COUNT; ++row) {
@@ -619,6 +637,7 @@ void drawSettingsMenu() {
       case 5: value = T(wifiEnabled ? S_ON : S_OFF,currentLanguage); break;
       case 6: value = prefs.getString("wifi_ssid", "--"); break;
       case 7: value = ecgMains ? String(ecgMains)+" Hz" : T(S_OFF,currentLanguage); break;
+      case 8: value = T(ppgAutoEnabled.load()?S_ON:S_OFF,currentLanguage); break;
     }
     int y=42+row*43; uint16_t bg=i==settingsSelected?COL_CARD_SEL:COL_CARD;
     tft.fillRoundRect(12,y,296,39,6,bg);
@@ -649,12 +668,15 @@ void scanHistoryFiles(int category) {
 // Open a CSV stream; serviceHistory() computes statistics incrementally.
 void computeHistoryDetail(const String &filename) {
   if (historyReader) historyReader.close();
-  historyDetailFile = filename; historyDetailRecords = 0; historyDetailAvg = 0;
-  historyTotalRows = 0; historySum = 0;
+  historyDetailFile = filename;
+  historyCsv.reset(); historyExpectedBytes=historyBytesRead=0;
+  historyTab = 0; historyTextScroll = 0;
+  historyContextPending = historyContextChosen = historyAdultRest = false;
+  historyContextChoice = 1;
   historyReader = SD.open(filename.c_str(), FILE_READ);
   historyLoading = bool(historyReader);
-  if(historyReader) historyReader.setTimeout(5);
-  if (historyLoading) { char header[192]; historyReader.readBytesUntil('\n',header,sizeof(header)-1); }
+  if(historyLoading) historyExpectedBytes=historyReader.size();
+  if (!historyLoading) { historyAnalysis.markIoError(); historyAnalysis.finish(); }
 }
 
 void enterHistoryScreen() {
@@ -730,16 +752,186 @@ void drawHistoryList() {
   u8g2.setForegroundColor(COL_TEXT_DIM); printFit(T(S_BACK_HINT,currentLanguage),14,233,292);
 }
 
+const char* HT(history_text::Id id) { return history_text::get(id,currentLanguage); }
+
+// A bounded, UTF-8-aware document renderer. Only one line is held in RAM;
+// UP/DOWN scroll a page. Advice is wrapped in full, never silently ellipsized.
+void historyTextLine(const char* text, uint16_t color) {
+  if(historyTextCursor>=historyTextScroll && historyTextCursor<historyTextScroll+HISTORY_TEXT_ROWS) {
+    u8g2.setForegroundColor(color); u8g2.setCursor(14,80+12*(historyTextCursor-historyTextScroll));
+    u8g2.print(text);
+  }
+  ++historyTextCursor;
+}
+
+void historyParagraph(const char* text, uint16_t color) {
+  const char* p=text;
+  while(*p) {
+    while(*p==' ') ++p;
+    if(!*p) break;
+    char line[160]; unsigned used=0, split=0;
+    const char* start=p; const char* afterSpace=nullptr;
+    while(*p && *p!='\n') {
+      unsigned char c=static_cast<unsigned char>(*p);
+      unsigned bytes=c<0x80?1:((c&0xe0)==0xc0?2:((c&0xf0)==0xe0?3:4));
+      if(used+bytes>=sizeof(line)) break;
+      memcpy(line+used,p,bytes); line[used+bytes]=0;
+      if(u8g2.getUTF8Width(line)>286) { line[used]=0; break; }
+      if(*p==' ') { split=used; afterSpace=p+1; }
+      used+=bytes; p+=bytes;
+    }
+    if(*p && *p!='\n' && afterSpace) { used=split; p=afterSpace; }
+    // All supplied UTF-8 glyphs fit on a line; protect against zero progress.
+    if(p==start) { ++p; continue; }
+    line[used]=0; historyTextLine(line,color);
+    if(*p=='\n') ++p;
+  }
+  historyTextLine("",color);
+}
+
+void historyMetricStats(cardio::Metric which) {
+  const auto& m=historyAnalysis.metric(which);
+  char text[160];
+  if(m.samples) {
+    char mean[24]="--";
+    if(isfinite(m.mean())) snprintf(mean,sizeof(mean),"%.1f",m.mean());
+    snprintf(text,sizeof(text),"%s: %.1f / %s / %.1f %s",HT(history_text::Range),
+      m.minimum,mean,m.maximum,which==cardio::Metric::Oxygen?"%":"bpm");
+    historyParagraph(text,COL_TEXT);
+  }
+  snprintf(text,sizeof(text),"%s: %.1f | %s: %.0f",HT(history_text::ValidTime),
+    double(m.validMs)/1000,HT(history_text::Coverage),m.coveragePercent());
+  historyParagraph(text,COL_TEXT_DIM);
+  if(which!=cardio::Metric::Oxygen) {
+    snprintf(text,sizeof(text),"%s: %.1f; %s: %.1f",HT(history_text::HighTime),
+      double(m.highMs)/1000,HT(history_text::LowTime),double(m.lowMs)/1000);
+    historyParagraph(text,COL_TEXT_DIM);
+  }
+  historyParagraph(HT(m.sufficient()?history_text::Enough:history_text::NotEnough),COL_TEXT_DIM);
+}
+
+void historyRateAnalysis(cardio::Metric which) {
+  using namespace history_text;
+  const auto& m=historyAnalysis.metric(which);
+  historyParagraph(HT(which==cardio::Metric::Ecg?Ecg:Pulse),COL_ACCENT);
+  historyMetricStats(which);
+  cardio::Finding finding=m.finding(historyAdultRest);
+  if(!m.samples) historyParagraph(HT(NoEstimate),COL_WARN);
+  else if(!historyAdultRest) historyParagraph(HT(ContextUnknown),COL_TEXT);
+  else {
+    Id explanation=RateUncertain;
+    switch(finding) {
+      case cardio::Finding::WithinReference: explanation=WithinRate; break;
+      case cardio::Finding::HighRate: explanation=HighRate; break;
+      case cardio::Finding::LowRate: explanation=LowRate; break;
+      case cardio::Finding::MixedRate: explanation=MixedRate; break;
+      default: break;
+    }
+    historyParagraph(HT(explanation),finding==cardio::Finding::WithinReference?COL_TEXT:COL_WARN);
+    if(m.highMs) historyParagraph(HT(FastExplanation),COL_TEXT);
+    if(m.lowMs) historyParagraph(HT(SlowExplanation),COL_TEXT);
+  }
+  historyParagraph(HT(RepeatRate),COL_TEXT);
+  historyParagraph(HT(which==cardio::Metric::Ecg?EcgLimits:PulseLimits),COL_TEXT_DIM);
+}
+
+void historyOxygenAnalysis() {
+  using namespace history_text;
+  const auto& m=historyAnalysis.metric(cardio::Metric::Oxygen);
+  historyParagraph(HT(Oxygen),COL_ACCENT); historyMetricStats(cardio::Metric::Oxygen);
+  cardio::Finding f=m.finding(historyAdultRest);
+  Id explanation=OxygenUncertain;
+  if(!m.samples) explanation=NoEstimate;
+  else if(f==cardio::Finding::WithinReference) explanation=OxygenUsual;
+  else if(f==cardio::Finding::BorderlineOxygen) explanation=OxygenBorderline;
+  else if(f==cardio::Finding::LowOxygen) explanation=OxygenLow;
+  else if(f==cardio::Finding::VeryLowOxygen) explanation=OxygenVeryLow;
+  historyParagraph(HT(explanation),f==cardio::Finding::VeryLowOxygen?COL_BAD:COL_TEXT);
+  if(f==cardio::Finding::VeryLowOxygen) historyParagraph(HT(OxygenUrgent),COL_BAD);
+  else if(f==cardio::Finding::LowOxygen) historyParagraph(HT(OxygenContact),COL_WARN);
+  if(f!=cardio::Finding::VeryLowOxygen && f!=cardio::Finding::LowOxygen)
+    historyParagraph(HT(RepeatOxygen),COL_TEXT);
+  historyParagraph(HT(OxygenLimits),COL_TEXT_DIM);
+}
+
 void drawHistoryDetail() {
+  using namespace history_text;
   tft.fillScreen(COL_BG); drawHeader(S_HISTORY_TITLE);
-  u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_ACCENT);
-  printFit(historyDetailFile,14,60,290);
-  u8g2.setForegroundColor(COL_TEXT);
-  printFit(String(T(S_HISTORY_RECORDS,currentLanguage))+": "+historyDetailRecords+" / "+historyTotalRows,14,92,290);
-  String average=historyDetailRecords?String(historyDetailAvg,1):"--";
-  printFit(String(T(S_HISTORY_AVERAGE,currentLanguage))+": "+average+(historyCategory==2?" %":" bpm"),14,122,290);
-  if(historyLoading) printFit(T(S_READING,currentLanguage),14,164,290);
-  printFit(T(S_BACK_HINT,currentLanguage),14,225,290);
+  u8g2.setFont(FONT_SMALL); u8g2.setBackgroundColor(COL_BG);
+  const Id tabs[]={Summary,Analysis,Help};
+  for(int i=0;i<3;++i) {
+    uint16_t bg=historyTab==i?COL_CARD_SEL:COL_CARD;
+    tft.fillRoundRect(10+i*102,37,96,23,4,bg);
+    u8g2.setForegroundColor(historyTab==i?COL_ACCENT:COL_TEXT_DIM);
+    printFit(HT(tabs[i]),18+i*102,53,83);
+  }
+  historyTextCursor=0;
+  if(historyTab==2) {
+    historyParagraph(HT(Emergency),COL_BAD);
+    historyParagraph(HT(NoDelay),COL_BAD);
+    historyParagraph(HT(OxygenUrgent),COL_BAD);
+    historyParagraph(HT(OxygenContact),COL_WARN);
+    historyParagraph(HT(Historical),COL_TEXT);
+    historyParagraph(HT(InterpretationLimits),COL_TEXT_DIM);
+  } else if(historyContextPending) {
+    historyParagraph(HT(ContextTitle),COL_TEXT);
+    historyParagraph(HT(ContextNotice),COL_TEXT_DIM);
+    // Choices always stay visible below the compact context explanation.
+    tft.fillRect(0,157,320,55,COL_BG);
+    for(int i=0;i<2;++i) {
+      tft.fillRoundRect(10,158+i*26,300,24,4,historyContextChoice==i?COL_CARD_SEL:COL_CARD);
+      u8g2.setForegroundColor(historyContextChoice==i?COL_ACCENT:COL_TEXT_DIM);
+      printFit(HT(i?OtherContext:AdultRest),18,174+i*26,280);
+    }
+  } else if(historyLoading) {
+    historyParagraph(HT(Reading),COL_TEXT);
+    historyParagraph(HT(Emergency),COL_BAD);
+  } else if(!historyAnalysis.supported()) {
+    historyParagraph(HT(Unreadable),COL_WARN);
+    historyParagraph(HT(Emergency),COL_BAD);
+  } else if(historyTab==0) {
+    historyParagraph(historyDetailFile.c_str(),COL_ACCENT);
+    if(historyAnalysis.ioError()) historyParagraph(HT(ReadError),COL_WARN);
+    char text[160];
+    snprintf(text,sizeof(text),"%s: %.1f",HT(Duration),double(historyAnalysis.durationMs())/1000);
+    historyParagraph(text,COL_TEXT);
+    if(historyCategory==0) {
+      historyParagraph(HT(Ecg),COL_ACCENT); historyMetricStats(cardio::Metric::Ecg);
+    }
+    historyParagraph(HT(Pulse),COL_ACCENT); historyMetricStats(cardio::Metric::Pulse);
+    historyParagraph(HT(Oxygen),COL_ACCENT); historyMetricStats(cardio::Metric::Oxygen);
+    snprintf(text,sizeof(text),"%s: %lu / %lu",HT(Damaged),
+      (unsigned long)historyAnalysis.malformedRows(),(unsigned long)historyAnalysis.gapCount());
+    historyParagraph(text,COL_TEXT_DIM);
+    historyParagraph(HT(QualityExplanation),COL_TEXT_DIM);
+  } else {
+    historyParagraph(HT(Experimental),COL_WARN);
+    if(historyAnalysis.ioError()) historyParagraph(HT(ReadError),COL_WARN);
+    historyParagraph(HT(historyAdultRest?AdultRest:OtherContext),COL_ACCENT);
+    // Put oxygen warnings before longer explanations of rates; do not bury urgency.
+    const auto& oxygen=historyAnalysis.metric(cardio::Metric::Oxygen);
+    if(oxygen.warningVeryLowOxygen()) {
+      historyParagraph(HT(OxygenVeryLow),COL_BAD);
+      historyParagraph(HT(OxygenUrgent),COL_BAD);
+    } else if(oxygen.warningLowOxygen()) {
+      historyParagraph(HT(OxygenLow),COL_WARN);
+      historyParagraph(HT(OxygenContact),COL_WARN);
+    }
+    historyParagraph(HT(Historical),COL_TEXT_DIM);
+    if(historyCategory==0) historyRateAnalysis(cardio::Metric::Ecg);
+    historyRateAnalysis(cardio::Metric::Pulse);
+    historyOxygenAnalysis();
+    historyParagraph(HT(QualityExplanation),COL_TEXT_DIM);
+    historyParagraph(HT(InterpretationLimits),COL_TEXT_DIM);
+  }
+  historyTextLines=historyTextCursor;
+  u8g2.setForegroundColor(COL_TEXT_DIM);
+  if(!historyContextPending) {
+    char page[24]; snprintf(page,sizeof(page),"%u / %u",historyTextScroll/HISTORY_TEXT_ROWS+1,
+      (historyTextLines+HISTORY_TEXT_ROWS-1)/HISTORY_TEXT_ROWS);
+    printFit(page,260,218,50);
+  }
+  printFit(HT(historyContextPending?ContextConfirm:Navigation),10,234,300);
 }
 
 // ============================================================
@@ -1043,6 +1235,11 @@ void updateWifiScreen() {
 
 
 void onUp() {
+  if(currentScreen==SCR_HISTORY_DETAIL) {
+    if(historyContextPending) historyContextChoice=1-historyContextChoice;
+    else historyTextScroll=historyTextScroll>=HISTORY_TEXT_ROWS?historyTextScroll-HISTORY_TEXT_ROWS:0;
+    drawHistoryDetail(); return;
+  }
   if (currentScreen == SCR_MAIN) {
     selectedItem = (selectedItem + MAIN_MENU_COUNT - 1) % MAIN_MENU_COUNT;
     drawMainMenu();
@@ -1066,6 +1263,11 @@ void onUp() {
 }
 
 void onDown() {
+  if(currentScreen==SCR_HISTORY_DETAIL) {
+    if(historyContextPending) historyContextChoice=1-historyContextChoice;
+    else if(historyTextScroll+HISTORY_TEXT_ROWS<historyTextLines) historyTextScroll+=HISTORY_TEXT_ROWS;
+    drawHistoryDetail(); return;
+  }
   if (currentScreen == SCR_MAIN) {
     selectedItem = (selectedItem + 1) % MAIN_MENU_COUNT;
     drawMainMenu();
@@ -1089,6 +1291,16 @@ void onDown() {
 }
 
 void onOk() {
+  if(currentScreen==SCR_HISTORY_DETAIL) {
+    if(historyContextPending) {
+      historyAdultRest=historyContextChoice==0;
+      historyContextPending=false; historyContextChosen=true;
+    } else {
+      historyTab=(historyTab+1)%3;
+      historyContextPending=historyTab==1 && !historyContextChosen && !historyLoading && historyAnalysis.supported();
+    }
+    historyTextScroll=0; drawHistoryDetail(); return;
+  }
   if (currentScreen==SCR_FORGET) {
     WiFi.disconnect(false, true); prefs.remove("wifi_ssid"); prefs.remove("wifi_pass");
     currentScreen=SCR_SETTINGS; drawSettingsMenu(); return;
@@ -1118,6 +1330,9 @@ void onOk() {
     } else if(settingsSelected==7) {
       ecgMains=ecgMains==50?60:(ecgMains==60?0:50);
       prefs.putUChar("mains",ecgMains); drawSettingsMenu();
+    } else if(settingsSelected==8) {
+      bool enabled=!ppgAutoEnabled.load(); ppgAutoEnabled.store(enabled);
+      prefs.putBool("ppg_auto",enabled); drawSettingsMenu();
     } else {
       currentScreen=SCR_FORGET; tft.fillScreen(COL_BG); drawHeader(S_FORGET_WIFI);
       u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT);
@@ -1216,6 +1431,7 @@ void setup() {
   if (currentLanguage>=LANG_COUNT) currentLanguage=LANG_RU;
   recordingEnabled=prefs.getBool("record",true);
   wifiEnabled=prefs.getBool("wifi_on",true);
+  ppgAutoEnabled.store(prefs.getBool("ppg_auto",true));
   ecgGain=prefs.getUChar("gain",1)%4;
   ecgMains=prefs.getUChar("mains",50);
   if(ecgMains!=50 && ecgMains!=60) ecgMains=0;
@@ -1325,6 +1541,7 @@ void appendLog(const char* row) {
 }
 void beginMeasurement(int mode) {
   poxProcessor.reset(); ecgDetector.setMains(ecgMains);
+  havePpgEpoch=false;
   ppgBaselineInit=false; graphHasSample=false;
   sessionStart=millis();
   sessionCommand=((sessionCommand+4)&~3u)|uint32_t(mode);
@@ -1351,7 +1568,19 @@ void consumeSamples() {
       poxProcessor.reset(); ecgDetector.reset(); graphHasSample=false; continue;
     }
     char row[192], metric[20]="", secondary[20]="";
-    if(sample.kind==2) { poxProcessor.reset(); continue; }
+    if(sample.kind==2) { poxProcessor.reset(); ppgBaselineInit=false; appendLog("# ppg_gap\n"); continue; }
+    if(sample.kind==1 || sample.kind==3 || sample.kind==4) {
+      if(!havePpgEpoch || activePpgEpoch!=sample.exposureEpoch) {
+        activePpgEpoch=sample.exposureEpoch; havePpgEpoch=true;
+        poxProcessor.reset(); ppgBaselineInit=false; graphHasSample=false;
+        snprintf(row,sizeof(row),"# ppg_gap\n# ppg_epoch=%u\n",activePpgEpoch); appendLog(row);
+      }
+      if(sample.kind==4) {
+        snprintf(row,sizeof(row),"# ppg_led,ms=%lu,red=%lu,ir=%lu,epoch=%u\n",
+          (unsigned long)(sample.ms-sessionStart),(unsigned long)sample.a,(unsigned long)sample.b,activePpgEpoch);
+        appendLog(row); continue;
+      }
+    }
     if(sample.kind==0 && currentScreen==SCR_ECG) {
       latestEcg=constrain(int(sample.a)*4095/26400,0,4095);
       ecgDetector.update(float(sample.a)*4095.0f/26400.0f,sample.ms);
@@ -1361,8 +1590,10 @@ void consumeSamples() {
                (unsigned long)sample.a,ecgDetector.filtered,ecgDetector.quality,metric);
       appendLog(row);
     }
-    if(sample.kind==1 && (currentScreen==SCR_PULSE || currentScreen==SCR_SPO2 || currentScreen==SCR_ECG)) {
-      latestIr=sample.a; poxProcessor.update(sample.a,sample.b,sample.ms);
+    if((sample.kind==1 || sample.kind==3) && (currentScreen==SCR_PULSE || currentScreen==SCR_SPO2 || currentScreen==SCR_ECG)) {
+      latestIr=sample.a;
+      if(sample.kind==3) { poxProcessor.reset(); ppgBaselineInit=false; }
+      else poxProcessor.update(sample.a,sample.b,sample.ms);
       if(currentScreen==SCR_ECG) {
         if(poxProcessor.hrValid) snprintf(metric,sizeof(metric),"%d",poxProcessor.beatAvg);
         if(poxProcessor.spo2Valid) snprintf(secondary,sizeof(secondary),"%.1f",poxProcessor.spo2);
@@ -1392,6 +1623,16 @@ void consumeSamples() {
 }
 StringID pulseState() {
   if(!sensorHealth.max || !acquisitionStarted || millis()-sensorHealth.ppgMs>500) return S_SENSOR_MISSING;
+  if(ppgAutoEnabled.load()) {
+    switch(sensorHealth.exposure) {
+      case ppg::ExposureState::Searching: return S_PLACE_FINGER;
+      case ppg::ExposureState::Adjusting: return S_PPG_TUNING;
+      case ppg::ExposureState::Weak: return S_PPG_WEAK;
+      case ppg::ExposureState::Clipped: return S_PPG_CLIPPED;
+      case ppg::ExposureState::Unstable: return S_PPG_UNSTABLE;
+      default: break;
+    }
+  }
   if(!poxProcessor.finger) return S_PLACE_FINGER;
   if(poxProcessor.count<BUFFER_SIZE || poxProcessor.goodWindows==1) return S_COLLECTING;
   if(!poxProcessor.hrValid || (currentScreen==SCR_SPO2 && !poxProcessor.spo2Valid)) return S_POOR_SIGNAL;
@@ -1454,26 +1695,32 @@ void drawDiagnostics() {
   snprintf(line,sizeof(line),"Lost: %lu  late: %lu  I2C: %lu",(unsigned long)sensorHealth.dropped,
            (unsigned long)sensorHealth.ecgLate,(unsigned long)sensorHealth.faults); printFit(line,14,168,290);
   printFit(WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():"Wi-Fi: --",14,190,290);
+  snprintf(line,sizeof(line),"LED R/IR: %u/%u  AUTO: %s",sensorHealth.ledRed,sensorHealth.ledIr,
+    ppgAutoEnabled.load()?"ON":"OFF"); printFit(line,14,210,290);
   printFit(acquisitionStarted?"OK: SD   UP + DOWN (hold): BACK":"TASK ERROR: restart",14,228,292);
 }
 void serviceHistory() {
   if(!historyLoading || currentScreen!=SCR_HISTORY_DETAIL) return;
-  char line[192];
-  // At most 24 short rows per loop: constant RAM and responsive BACK.
-  for(int i=0;i<24 && historyReader.available();++i) {
-    size_t len=historyReader.readBytesUntil('\n',line,sizeof(line)-1); line[len]=0;
-    if(line[0]=='#') continue;
-    char* last=strrchr(line,',');
-    if(last) {
-      ++historyTotalRows;
-      char* end=nullptr; float v=strtof(last+1,&end);
-      if(end!=last+1 && (*end==0 || *end=='\r') && isfinite(v) && v>0) { historySum+=v; ++historyDetailRecords; }
+  bool readFailed=false;
+  // Bounded byte budget, including broken/very long lines. No blocking
+  // readBytesUntil or full-recording allocation. BACK remains responsive.
+  uint8_t block[256];
+  for(unsigned n=0;n<6 && historyBytesRead<historyExpectedBytes;++n) {
+    size_t remaining=historyExpectedBytes-historyBytesRead;
+    size_t requested=remaining<sizeof(block)?remaining:sizeof(block);
+    int received=historyReader.read(block,requested);
+    if(received>0) {
+      historyBytesRead+=size_t(received);
+      historyCsv.feed(block,size_t(received));
     }
+    if(received!=int(requested)) { readFailed=true; historyAnalysis.markIoError(); break; }
   }
-  historyDetailAvg=historyDetailRecords?historySum/historyDetailRecords:0;
   static uint32_t lastDraw=0;
-  if(!historyReader.available()) { historyReader.close(); historyLoading=false; drawHistoryDetail(); }
-  else if(millis()-lastDraw>500) { lastDraw=millis(); drawHistoryDetail(); }
+  if(readFailed || historyBytesRead==historyExpectedBytes) {
+    historyReader.close(); historyLoading=false; historyCsv.finish();
+    if(historyTab==1 && !historyContextChosen && historyAnalysis.supported()) historyContextPending=true;
+    if(historyTab!=2) { historyTextScroll=0; drawHistoryDetail(); }
+  } else if(millis()-lastDraw>500 && historyTab!=2) { lastDraw=millis(); drawHistoryDetail(); }
 }
 
 int historyItemCount() { return historyFileCount + int(historyHasOlder) + int(historyHasNewer); }

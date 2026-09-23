@@ -18,7 +18,7 @@ int xTaskCreate(void(*)(void*),const char*,unsigned,void*,unsigned,void*);
 void vTaskDelay(unsigned);
 ''')
     for name in ['task.h','queue.h']:(include/name).write_text('#include "FreeRTOS.h"\n')
-    for test in ['signal','acquisition','ecg']:
+    for test in ['signal','acquisition','ecg','history_analysis','ppg_auto']:
         sources=[str(root/'tests'/f'{test}_tests.cpp')]
         if test=='signal':sources+=[str(root/'rf_algorithm.cpp')]
         binary=work/test
