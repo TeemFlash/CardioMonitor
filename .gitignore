@@ -1,0 +1,24 @@
+# Build outputs and local IDE / machine state
+**/build/
+**/.gradle/
+**/.idea/
+**/.kotlin/
+**/local.properties
+*.iml
+*.hprof
+*.log
+__pycache__/
+.DS_Store
+.agents/
+.codex/
+.github/modernize/
+# Credentials and local signing configuration
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+key.properties
+# Personal measurements: only the upstream synthetic example belongs in Git
+*.csv
+!Monitor soft/Pulse+SpO2/MAX30102_by_RF-master/ExpectedGoodQualitySignals.csv
