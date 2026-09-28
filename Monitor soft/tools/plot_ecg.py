@@ -38,7 +38,7 @@ int main(){
   }
 }
 ''')
-        subprocess.run(['c++','-std=c++17','-I',str(root),str(source),'-o',str(binary)],check=True)
+        subprocess.run(['c++','-std=c++17','-I',str(root/'MedicalMonitor'),str(source),'-o',str(binary)],check=True)
         stream=io.StringIO(subprocess.check_output([str(binary)],text=True))
     else:
         stream=a.csv.open(encoding='utf-8-sig')

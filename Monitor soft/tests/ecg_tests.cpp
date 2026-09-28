@@ -1,4 +1,4 @@
-#include "../EcgProcessing.h"
+#include "../MedicalMonitor/EcgProcessing.h"
 #include <cassert>
 #include <cstdio>
 #include <initializer_list>

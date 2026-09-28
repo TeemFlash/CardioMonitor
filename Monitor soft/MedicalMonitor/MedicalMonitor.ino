@@ -1,7 +1,7 @@
 // Cardio Monitor / ESP32-C3 Super Mini, ILI9341 320x240.
 // Records live only on microSD. RAM holds bounded acquisition/log buffers.
 // Experimental measurements, not a diagnostic or calibrated medical instrument.
-// Build and hardware validation: README.md; tools/build.py.
+// Build and hardware validation: ../README.md; ../tools/build.py.
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>

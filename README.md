@@ -20,7 +20,7 @@ ESP32 собирает и обрабатывает сигналы, рисует 
 | [README прошивки](Monitor%20soft/README.md) | **Назначение каждого файла прошивки**, связи модулей, где менять функции, распиновка, алгоритмы, SD, сборка и проверка |
 | [README Android](CardioMonitorApp/README.md) | **Назначение каждого Kotlin/config/resource-файла**, стек, протокол, экраны, БД и незавершённые части |
 | [Обоснование анализа истории](Monitor%20soft/docs/history-analysis-medical-notes.md) | Источники рекомендаций, смысл порогов, ограничения выводов и необходимые проверки |
-| [Происхождение RF-алгоритма](Monitor%20soft/Pulse%2BSpO2/MAX30102_by_RF-master/README.md) | Автор, лицензия, локальные изменения и оставшиеся файлы |
+| [Происхождение RF-алгоритма](Monitor%20soft/MedicalMonitor/Pulse%2BSpO2/MAX30102_by_RF-master/README.md) | Автор, лицензия, локальные изменения и оставшиеся файлы |
 
 ## Что реализовано
 
@@ -52,18 +52,19 @@ CardioMonitor/
 │   └── firmware-tests.yml            # Нативные тесты в GitHub Actions
 ├── Monitor soft/
 │   ├── README.md                     # Подробная карта файлов и инструкция устройства
-│   ├── MedicalMonitor.ino            # setup/loop, экран, кнопки, Wi-Fi, SD, настройки
-│   ├── Acquisition.h                 # Задача I2C, ADS1115/MAX30102, очереди
-│   ├── SignalProcessing.h            # Окно пульса/SpO₂, пригодность, кнопки, батарея
-│   ├── EcgProcessing.h               # Фильтры ЭКГ, частота, буфер графика
-│   ├── PpgAutoExposure.h             # Автонастройка оптических уровней
-│   ├── HistoryAnalysis.h             # Потоковый CSV-анализ и накопители статистики
-│   ├── HistoryText.h                 # Объяснения и советы для истории EN/RU/KZ
-│   ├── rf_algorithm.cpp              # Включение RF-реализации в сборку Arduino
-│   ├── Pulse+SpO2/MAX30102_by_RF-master/
-│   │   ├── README.md                 # Происхождение и роль сохранённого алгоритма
-│   │   ├── algorithm_by_RF.cpp        # Расчёт оптической ЧСС и SpO₂
-│   │   └── algorithm_by_RF.h          # API, частота, окно и пороги RF
+│   ├── MedicalMonitor/               # Исходный скетч: открывать и редактировать в IDE
+│   │   ├── MedicalMonitor.ino        # setup/loop, экран, кнопки, Wi-Fi, SD, настройки
+│   │   ├── Acquisition.h             # Задача I2C, ADS1115/MAX30102, очереди
+│   │   ├── SignalProcessing.h        # Окно пульса/SpO₂, пригодность, кнопки, батарея
+│   │   ├── EcgProcessing.h           # Фильтры ЭКГ, частота, буфер графика
+│   │   ├── PpgAutoExposure.h         # Автонастройка оптических уровней
+│   │   ├── HistoryAnalysis.h         # Потоковый CSV-анализ и накопители статистики
+│   │   ├── HistoryText.h             # Объяснения и советы для истории EN/RU/KZ
+│   │   ├── rf_algorithm.cpp          # Включение RF-реализации в сборку Arduino
+│   │   └── Pulse+SpO2/MAX30102_by_RF-master/
+│   │       ├── README.md             # Происхождение и роль сохранённого алгоритма
+│   │       ├── algorithm_by_RF.cpp    # Расчёт оптической ЧСС и SpO₂
+│   │       └── algorithm_by_RF.h      # API, частота, окно и пороги RF
 │   ├── tools/
 │   │   ├── build.py                   # Подготовка скетча, сборка, явная загрузка
 │   │   └── plot_ecg.py                # График CSV или синтетический пример фильтра
@@ -138,16 +139,27 @@ flowchart LR
 
 ## Быстрый старт с прошивкой
 
-Команды выполняются **из корня репозитория**. Кавычки нужны из-за пробела в
-`Monitor soft`. Нужны Python 3, для тестов — C++17-компилятор `c++` с ASan/UBSan,
-для сборки платы — Arduino CLI с ESP32 core и библиотеками из
+В Arduino IDE откройте исходный скетч
+**[Monitor soft/MedicalMonitor/MedicalMonitor.ino](Monitor%20soft/MedicalMonitor/MedicalMonitor.ino)**.
+Все нужные `.h/.cpp` и вложенная папка RF находятся рядом. Папка уже имеет правильное
+имя `MedicalMonitor`: переносить отдельный `.ino` или предварительно запускать
+Python не нужно. Если копируете проект, переносите **всю папку `MedicalMonitor/`**.
+
+Установите ESP32 core и библиотеки из
 [инструкции прошивки](Monitor%20soft/README.md#сборка-и-загрузка).
+Плата: ESP32C3 Dev Module, USB CDC при запуске, 4 МБ flash, Default partitions.
+Затем выберите порт своей платы, выполните «Проверить» и «Загрузить».
+Прошивка целиком написана на C++; Arduino компилирует `.ino` как C++.
+
+Для необязательных инструментов командной строки нужен Python 3; для тестов —
+C++17-компилятор `c++` с ASan/UBSan, для сборки платы — Arduino CLI.
+Команды выполняются **из корня репозитория**. Кавычки нужны из-за пробела в `Monitor soft`.
 
 ```sh
 # Проверить алгоритмы и модель оборудования без платы
 python3 'Monitor soft/tests/run.py'
 
-# Подготовить папку Arduino IDE, не компилируя прошивку
+# Создать отдельную копию скетча в build/, не компилируя прошивку
 python3 'Monitor soft/tools/build.py' --stage-only
 
 # Подготовить и скомпилировать ESP32-C3, без загрузки на плату
@@ -157,25 +169,25 @@ python3 'Monitor soft/tools/build.py'
 python3 'Monitor soft/tools/build.py' --upload /dev/ttyACM0
 ```
 
-Порт `/dev/ttyACM0` — пример. Для Arduino IDE открывайте
-**`Monitor soft/build/MedicalMonitor/MedicalMonitor.ino`**, сохраняя рядом все
-подготовленные `.h/.cpp` и вложенную папку RF. Плата: ESP32C3 Dev Module,
-USB CDC при запуске, 4 МБ flash, Default partitions.
+Порт `/dev/ttyACM0` — пример. Python-инструменты работают на компьютере;
+на ESP32 и SD они не нужны.
 
-**Редактируйте исходники в `Monitor soft/`, а не копии в `build/MedicalMonitor/`.**
-Повторный запуск `build.py` перезаписывает подготовленные исходники. Поэтому файл
-из `build`, открытый сейчас в IDE, не является главным файлом для изменений в Git.
-После добавления нового заголовка включите его в явный список `tools/build.py`.
+**Редактируйте исходники в `Monitor soft/MedicalMonitor/`.**
+`Monitor soft/build/MedicalMonitor/` — создаваемая инструментом копия;
+повторный запуск `build.py` перезаписывает её. Если редактировали эту копию,
+сначала перенесите правки в исходную папку. После добавления нового заголовка
+включите его также в явный список `tools/build.py` для сборки этим инструментом.
 Распиновка, управление и проверки на устройстве — в [README прошивки](Monitor%20soft/README.md).
 
 ## Локальные и сгенерированные файлы
 
 | Путь | Назначение и обращение |
 |---|---|
-| `Monitor soft/build/MedicalMonitor/` | Подготовленный скетч; восстанавливается через `--stage-only` |
+| `Monitor soft/build/MedicalMonitor/` | Создаваемая копия исходного скетча; восстанавливается через `--stage-only`, для Arduino IDE не обязательна |
 | `Monitor soft/build/objects/` | Объектные файлы Arduino CLI; следующая сборка создаёт их заново |
 | `Monitor soft/build/firmware/` | Скомпилированные `.bin/.elf/.map`; пересоздаются через `build.py` |
 | `Monitor soft/build/MedicalMonitor/build/` | Возможные экспорты Arduino IDE; не исходники |
+| `Monitor soft/MedicalMonitor/build/` | Возможные экспорты Arduino IDE рядом с исходным скетчем; не исходники |
 | `Monitor soft/build/preview/cardio-display.html` | Если есть локально: ранний макет с вымышленными показаниями, не актуальная прошивка; не нужен для сборки |
 | `CardioMonitorApp/app/build/`, `build/`, `.gradle/` | Результаты и кэш Android-сборки |
 | `CardioMonitorApp/local.properties` | Локальный путь Android SDK; не публикуется, сохраняется на рабочем компьютере |
