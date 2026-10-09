@@ -217,7 +217,6 @@ Preferences prefs;
 // ============================================================
 Language currentLanguage = LANG_RU;
 int currentScreen = SCR_MAIN;
-int lastMeasurementScreen = SCR_PULSE;
 int selectedItem = 0;
 
 // Настройки
@@ -487,7 +486,7 @@ void openLogFile(const char* prefix, const char* header) {
 // ============================================================
 // 9. ГЛАВНОЕ МЕНЮ
 // ============================================================
-// Measurement buttons are direct shortcuts; lists retain UP/DOWN/OK/BACK.
+// Stable navigation: UP/DOWN select, OK opens, BACK returns one level.
 bool isMeasurementScreen() {
   return currentScreen==SCR_ECG || currentScreen==SCR_PULSE || currentScreen==SCR_SPO2;
 }
@@ -497,38 +496,26 @@ const char* UI(const char* en,const char* ru,const char* kz) {
 int ecgGraphTop() { return currentScreen==SCR_PULSE?PPG_TOP:GRAPH_TOP; }
 int ecgGraphBottom() { return currentScreen==SCR_PULSE?PPG_BOTTOM:GRAPH_BOTTOM; }
 void drawMonitorNavigation() {
-  const char* labels[]={UI("Monitor","Монитор","Монитор"),UI("Record","Запись","Жазу"),
-    UI("History","История","Тарих"),UI("Settings","Настр.","Баптау")};
-  tft.fillRect(0,214,320,26,COL_CARD);
+  tft.fillRect(0,214,320,26,COL_BG);
   tft.drawFastHLine(0,214,320,COL_TRACK);
-  for(int i=0;i<4;++i) {
-    int x=i*80;
-    if(i==0 || (i==1 && logFileOpen)) tft.fillRect(x+8,214,64,2,i==1?COL_PULSE_LINE:COL_ACCENT);
-    u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(i==0?COL_ACCENT:COL_TEXT_DIM);
-    int w=u8g2.getUTF8Width(labels[i]); u8g2.setCursor(x+(80-w)/2,232); u8g2.print(labels[i]);
-  }
+  u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(COL_TEXT_DIM);
+  printFit(UI("4 BACK: main menu","4 НАЗАД: главное меню","4 АРТҚА: негізгі мәзір"),8,232,304);
 }
 void drawMeasurementTabs() {
-  const char* labels[]={UI("PULSE","ПУЛЬС","ПУЛЬС"),"SpO2",UI("ECG","ЭКГ","ЭКГ")};
-  const int screens[]={SCR_PULSE,SCR_SPO2,SCR_ECG};
-  const uint16_t colors[]={COL_PULSE_LINE,COL_OXYGEN,COL_ECG_ACCENT};
+  const char* title=currentScreen==SCR_ECG?UI("ECG","ЭКГ","ЭКГ"):
+    currentScreen==SCR_PULSE?UI("PULSE","ПУЛЬС","ПУЛЬС"):"SpO2";
+  uint16_t color=currentScreen==SCR_ECG?COL_ECG_ACCENT:currentScreen==SCR_PULSE?COL_PULSE_LINE:COL_OXYGEN;
   tft.fillRect(0,28,320,24,COL_BG);
+  tft.fillRect(8,34,3,12,color);
+  u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(color);
+  u8g2.setCursor(18,43);u8g2.print(title);
   tft.drawFastHLine(0,51,320,COL_TRACK);
-  for(int i=0;i<3;++i) {
-    int x=i*107;
-    bool active=currentScreen==screens[i];
-    if(active)tft.fillRect(x+8,49,91,3,colors[i]);
-    u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(active?colors[i]:COL_TEXT_DIM);
-    int w=u8g2.getUTF8Width(labels[i]);u8g2.setCursor(x+(107-w)/2,43);u8g2.print(labels[i]);
-  }
   drawMonitorNavigation();
 }
 void drawMeasurementFrame() {
   tft.fillScreen(COL_BG); drawHeader(S_APP_TITLE); drawMeasurementTabs();
 }
-void stopMeasurement() {
-  sensorCommand.store((sessionCommand+=4)&~3u); closeLogFile();
-}
+
 void drawOpticalNumber(bool oxygen) {
   uint16_t color=oxygen?COL_OXYGEN:COL_PULSE_LINE;
   int value=oxygen?(poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1):(poxProcessor.hrValid?poxProcessor.beatAvg:-1);
@@ -567,10 +554,50 @@ void drawMonitorCaption(const char* text) {
 }
 
 void drawMainMenu() {
-  currentScreen=lastMeasurementScreen;
-  if(currentScreen==SCR_ECG) enterEcgScreen();
-  else if(currentScreen==SCR_SPO2) enterSpo2Screen();
-  else enterPulseScreen();
+  currentScreen=SCR_MAIN;
+  tft.fillScreen(COL_BG);
+  drawHeader(S_APP_TITLE);
+
+  int yPos[MAIN_MENU_COUNT] = {34, 70, 106, 142, 178};
+  int cardH = 32;
+  StringID labels[MAIN_MENU_COUNT] = {S_MENU_ECG, S_MENU_PULSE, S_MENU_SPO2, S_MENU_HISTORY, S_MENU_SETTINGS};
+
+  for (int i = 0; i < MAIN_MENU_COUNT; i++) {
+    bool sel = (selectedItem == i);
+    uint16_t bg = sel ? COL_CARD_SEL : COL_CARD;
+    uint16_t border = sel ? COL_ACCENT : COL_TRACK;
+
+    tft.fillRoundRect(14, yPos[i], SCREEN_W - 28, cardH, 9, bg);
+    tft.drawRoundRect(14, yPos[i], SCREEN_W - 28, cardH, 9, border);
+
+    tft.fillCircle(44, yPos[i] + cardH / 2, 14, sel ? COL_ACCENT_DIM : COL_BG_LIGHT);
+    switch (i) {
+      case 0: iconHeartbeat(30, yPos[i] + cardH / 2 - 6, 26, 12, sel ? COL_ACCENT : COL_TEXT_DIM); break;
+      case 1: iconDrop(44, yPos[i] + cardH / 2, 9, sel ? COL_ACCENT : COL_TEXT_DIM); break;
+      case 2: iconO2(44, yPos[i] + cardH / 2, 10, sel ? COL_ACCENT : COL_TEXT_DIM); break;
+      case 3: iconHistory(44, yPos[i] + cardH / 2, 9, sel ? COL_ACCENT : COL_TEXT_DIM); break;
+      case 4: iconGear(44, yPos[i] + cardH / 2, 8, sel ? COL_ACCENT : COL_TEXT_DIM); break;
+    }
+
+    u8g2.setFont(FONT_MED);
+    u8g2.setFontMode(1);
+    u8g2.setForegroundColor(sel ? COL_TEXT : COL_TEXT_DIM);
+    u8g2.setBackgroundColor(bg);
+    printFit(T(labels[i], currentLanguage),74,yPos[i] + cardH / 2 + 7,204);
+
+    if (sel) {
+      tft.fillTriangle(SCREEN_W - 30, yPos[i] + cardH / 2 - 5,
+                        SCREEN_W - 30, yPos[i] + cardH / 2 + 5,
+                        SCREEN_W - 22, yPos[i] + cardH / 2, COL_ACCENT);
+    }
+  }
+
+  u8g2.setFont(FONT_SMALL);
+  u8g2.setFontMode(1);
+  u8g2.setForegroundColor(COL_TEXT_DIM);
+  u8g2.setBackgroundColor(COL_BG);
+  u8g2.setCursor(8, 234);
+  u8g2.print(T(S_NAV_HINT, currentLanguage));
 }
 
 // ============================================================
@@ -579,7 +606,6 @@ void drawMainMenu() {
 
 
 void enterEcgScreen() {
-  lastMeasurementScreen=SCR_ECG;
   beginMeasurement(1);
   drawMeasurementFrame();
   graphX = 0; prevEcgY = (GRAPH_TOP + GRAPH_BOTTOM)/2;
@@ -615,7 +641,6 @@ void renderECG() {
 
 
 void enterPulseScreen() {
-  lastMeasurementScreen=SCR_PULSE;
   beginMeasurement(1);
   drawMeasurementFrame();
   graphX=0; drawGraphGrid(PPG_TOP,PPG_BOTTOM);
@@ -635,7 +660,6 @@ void renderPulseOnly() {
 // 12. ЭКРАН SpO2
 // ============================================================
 void enterSpo2Screen() {
-  lastMeasurementScreen=SCR_SPO2;
   beginMeasurement(2);
   drawMeasurementFrame();
   graphX=0;drawGraphGrid(PPG_TOP,PPG_BOTTOM);
@@ -1281,10 +1305,7 @@ void updateWifiScreen() {
 
 
 void onUp() {
-  if(isMeasurementScreen()) {
-    int next=currentScreen==SCR_PULSE?SCR_SPO2:(currentScreen==SCR_SPO2?SCR_ECG:SCR_PULSE);
-    stopMeasurement();lastMeasurementScreen=next;drawMainMenu();return;
-  }
+
   if(currentScreen==SCR_HISTORY_DETAIL) {
     if(historyContextPending) historyContextChoice=1-historyContextChoice;
     else historyTextScroll=historyTextScroll>=HISTORY_TEXT_ROWS?historyTextScroll-HISTORY_TEXT_ROWS:0;
@@ -1313,12 +1334,7 @@ void onUp() {
 }
 
 void onDown() {
-  if(isMeasurementScreen()) {
-    recordingEnabled=!recordingEnabled;prefs.putBool("record",recordingEnabled);
-    if(recordingEnabled){stopMeasurement();drawMainMenu();}
-    else {closeLogFile();drawMonitorNavigation();}
-    return;
-  }
+
   if(currentScreen==SCR_HISTORY_DETAIL) {
     if(historyContextPending) historyContextChoice=1-historyContextChoice;
     else if(historyTextScroll+HISTORY_TEXT_ROWS<historyTextLines) historyTextScroll+=HISTORY_TEXT_ROWS;
@@ -1347,7 +1363,6 @@ void onDown() {
 }
 
 void onOk() {
-  if(isMeasurementScreen()){stopMeasurement();currentScreen=SCR_HISTORY;enterHistoryScreen();return;}
   if(currentScreen==SCR_HISTORY_DETAIL) {
     if(historyContextPending) {
       historyAdultRest=historyContextChoice==0;
@@ -1423,7 +1438,6 @@ void onOk() {
 }
 
 void onBack() {
-  if(isMeasurementScreen()){stopMeasurement();currentScreen=SCR_SETTINGS;drawSettingsMenu();return;}
   if (currentScreen==SCR_DIAGNOSTICS || currentScreen==SCR_FORGET) {
     currentScreen=SCR_SETTINGS; drawSettingsMenu(); return;
   }
