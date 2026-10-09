@@ -221,7 +221,7 @@ int selectedItem = 0;
 
 // Настройки
 int settingsSelected = 0;
-const int SETTINGS_COUNT = 13;
+const int SETTINGS_COUNT = 3; // Wi-Fi, Bluetooth status, language
 bool fineGrid = true;
 bool recordingEnabled = true, wifiEnabled = true;
 uint8_t ecgGain = 1;
@@ -628,45 +628,25 @@ void renderSpo2Only() {
 // ============================================================
 
 void drawSettingsMenu() {
-  static int previousPage=-1;
-  static DisplayTextCache rowCache[4];
-  int page=settingsSelected/4;
-  if(displayedScreen!=currentScreen || displayedLanguage!=currentLanguage || previousPage!=page) {
-    clearDisplay();drawHeader(S_SETTINGS_TITLE);previousPage=page;
+  static DisplayTextCache rowCache[SETTINGS_COUNT];
+  if(displayedScreen!=currentScreen || displayedLanguage!=currentLanguage) {
+    clearDisplay();drawHeader(S_SETTINGS_TITLE);
   }
-  const StringID labels[] = {S_LANGUAGE, S_WIFI_LABEL, S_RECORDING, S_SCALE,
-                             S_DIAGNOSTICS, S_WIFI_POWER, S_FORGET_WIFI, S_NOTCH, S_AUTO_PPG, S_SETTINGS_TITLE, S_SCALE, S_SETTINGS_TITLE, S_SCALE};
-  StringID langNames[] = {S_LANG_NAME_EN, S_LANG_NAME_RU, S_LANG_NAME_KZ};
-  int first = (settingsSelected / 4) * 4;
-  for (int row=0; row<4 && first+row<SETTINGS_COUNT; ++row) {
-    int i = first+row;
-    String value;
-    switch(i) {
-      case 0: value = T(langNames[currentLanguage], currentLanguage); break;
-      case 1: value = WiFi.status()==WL_CONNECTED ? WiFi.SSID() : T(S_WIFI_NOT_CONNECTED,currentLanguage); break;
-      case 2: value = T(recordingEnabled ? S_ON : S_OFF,currentLanguage); break;
-      case 3: value = "x" + String(1 << ecgGain); break;
-      case 4: value = "MAX30102 / ADS1115 / SD"; break;
-      case 5: value = T(wifiEnabled ? S_ON : S_OFF,currentLanguage); break;
-      case 6: value = prefs.getString("wifi_ssid", "--"); break;
-      case 7: value = ecgMains ? String(ecgMains)+" Hz" : T(S_OFF,currentLanguage); break;
-      case 8: value = T(ppgAutoEnabled.load()?S_ON:S_OFF,currentLanguage); break;
-      case 9: value = UI("Light","Светлая","Ашық"); break;
-      case 10: value = fineGrid?UI("Fine + bold","Мелкая + крупная","Ұсақ + ірі"):UI("Bold only","Только крупная","Тек ірі"); break;
-      case 11: value = UI("Fixed / wired to 3.3 V","Фиксированная / 3.3 В","Тұрақты / 3.3 В"); break;
-      case 12: value = "0.2 s/div (100 px/s)"; break;
-    }
-    String key=String(i)+"/"+String(i==settingsSelected)+"/"+value;
-    if(!rowCache[row].update(key.c_str(),displayRevision))continue;
-    int y=42+row*43; uint16_t bg=i==settingsSelected?COL_CARD_SEL:COL_CARD;
-    tft.fillRoundRect(12,y,296,39,0,bg);
-    u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT_DIM); u8g2.setBackgroundColor(bg);
-    const char* label=i==9?UI("Theme","Тема","Тақырып"):
-      i==10?UI("ECG grid","Сетка ЭКГ","ЭКГ торы"):
-      i==11?UI("Backlight","Подсветка","Жарық"):
-      i==12?UI("ECG sweep","Развёртка ЭКГ","ЭКГ жаймасы"):T(labels[i],currentLanguage);
-    printFit(label,24,y+14,270);
-    u8g2.setForegroundColor(COL_TEXT); printFit(value,24,y+31,270);
+  const char* labels[]={"Wi-Fi","Bluetooth",T(S_LANGUAGE,currentLanguage)};
+  const StringID langNames[]={S_LANG_NAME_EN,S_LANG_NAME_RU,S_LANG_NAME_KZ};
+  const String values[]={
+    WiFi.status()==WL_CONNECTED?WiFi.SSID():String(T(S_WIFI_NOT_CONNECTED,currentLanguage)),
+    String(UI("Not implemented","Не реализован","Іске асырылмаған")),
+    String(T(langNames[currentLanguage],currentLanguage))
+  };
+  for(int i=0;i<SETTINGS_COUNT;++i) {
+    String key=String(i==settingsSelected)+"/"+values[i];
+    if(!rowCache[i].update(key.c_str(),displayRevision))continue;
+    int y=42+i*52;uint16_t bg=i==settingsSelected?COL_CARD_SEL:COL_CARD;
+    tft.fillRect(12,y,296,46,bg);
+    u8g2.setFont(FONT_SMALL);u8g2.setBackgroundColor(bg);
+    u8g2.setForegroundColor(COL_TEXT);printFit(labels[i],24,y+17,270);
+    u8g2.setForegroundColor(COL_TEXT_DIM);printFit(values[i],24,y+35,270);
   }
 }
 
@@ -1303,29 +1283,9 @@ void onOk() {
       case 4: currentScreen = SCR_SETTINGS; drawSettingsMenu();  break;
     }
   } else if (currentScreen == SCR_SETTINGS) {
-    if (settingsSelected == 0) cycleLanguage();
-    else if (settingsSelected == 1) { currentScreen = SCR_WIFI; startWifiScan(); }
-    else if (settingsSelected == 2) { recordingEnabled = !recordingEnabled; prefs.putBool("record",recordingEnabled); drawSettingsMenu(); }
-    else if (settingsSelected == 3) { ecgGain = (ecgGain+1)%4; prefs.putUChar("gain",ecgGain); drawSettingsMenu(); }
-    else if (settingsSelected == 4) { currentScreen=SCR_DIAGNOSTICS; drawDiagnostics(); }
-    else if(settingsSelected==9 || settingsSelected==11 || settingsSelected==12) { drawSettingsMenu(); }
-    else if(settingsSelected==10) {fineGrid=!fineGrid;prefs.putBool("fine_grid",fineGrid);drawSettingsMenu();}
-    else if (settingsSelected == 5) {
-      wifiEnabled=!wifiEnabled; prefs.putBool("wifi_on",wifiEnabled);
-      if (wifiEnabled) { WiFi.mode(WIFI_STA); connectSavedWifi(); }
-      else { WiFi.disconnect(true); WiFi.mode(WIFI_OFF); }
-      drawSettingsMenu();
-    } else if(settingsSelected==7) {
-      ecgMains=ecgMains==50?60:(ecgMains==60?0:50);
-      prefs.putUChar("mains",ecgMains); drawSettingsMenu();
-    } else if(settingsSelected==8) {
-      bool enabled=!ppgAutoEnabled.load(); ppgAutoEnabled.store(enabled);
-      prefs.putBool("ppg_auto",enabled); drawSettingsMenu();
-    } else {
-      currentScreen=SCR_FORGET; clearDisplay(); drawHeader(S_FORGET_WIFI);
-      u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT);
-      printFit(T(S_CONFIRM,currentLanguage),14,115,290);
-    }
+    if(settingsSelected==0) {currentScreen=SCR_WIFI;startWifiScan();}
+    else if(settingsSelected==2) cycleLanguage();
+    // Bluetooth has no transport implementation yet; its status is read-only.
   } else if (currentScreen == SCR_HISTORY) {
     historyCategory = historyMenuSelected;
     scanHistoryFiles(historyCategory);
