@@ -18,7 +18,7 @@ if sketch == source:
     p.error('--output must not overwrite the source sketch; use the build directory')
 sketch.mkdir(parents=True, exist_ok=True)
 for name in ['MedicalMonitor.ino', 'SignalProcessing.h', 'EcgProcessing.h', 'Acquisition.h',
-             'HistoryAnalysis.h', 'HistoryText.h', 'PpgAutoExposure.h', 'rf_algorithm.cpp']:
+             'HistoryAnalysis.h', 'HistoryText.h', 'PpgAutoExposure.h', 'DisplayModel.h', 'rf_algorithm.cpp']:
     shutil.copy2(source / name, sketch / name)
 rf = Path('Pulse+SpO2/MAX30102_by_RF-master')
 (sketch / rf).mkdir(parents=True, exist_ok=True)

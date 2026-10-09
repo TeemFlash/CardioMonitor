@@ -2,75 +2,51 @@ package com.cardiomonitor.app.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
-import com.cardiomonitor.app.ui.history.HistoryScreen
-import com.cardiomonitor.app.ui.history.HistoryViewModel
-import com.cardiomonitor.app.ui.live.LiveMonitorScreen
-import com.cardiomonitor.app.ui.live.LiveMonitorViewModel
-
-sealed class Screen(val route: String, val label: String) {
-    data object Live : Screen("live", "Мониторинг")
-    data object History : Screen("history", "История")
-    data object SessionDetail : Screen("session_detail/{sessionId}", "Детали")
-}
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.navigation.compose.*
+import com.cardiomonitor.app.data.repository.AnalysisRepository
+import com.cardiomonitor.app.ui.components.MedicalColors
+import com.cardiomonitor.app.ui.history.*
+import com.cardiomonitor.app.ui.live.*
+import com.cardiomonitor.app.ui.device.DeviceScreen
+import com.cardiomonitor.app.ui.detail.SessionDetailScreen
 
 @Composable
-fun AppNavigation(
-    liveViewModel: LiveMonitorViewModel,
-    historyViewModel: HistoryViewModel
-) {
-    val navController = rememberNavController()
-
-    Scaffold(
-        bottomBar = { BottomBar(navController) }
-    ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Live.route,
-            modifier = androidx.compose.ui.Modifier.padding(padding)
-        ) {
-            composable(Screen.Live.route) {
-                LiveMonitorScreen(liveViewModel)
-            }
-            composable(Screen.History.route) {
-                HistoryScreen(historyViewModel) { sessionId ->
-                    navController.navigate("session_detail/$sessionId")
-                }
-            }
-            composable(Screen.SessionDetail.route) { backStackEntry ->
-                val sessionId = backStackEntry.arguments?.getString("sessionId")
-                // Детали сессии подключаются здесь через SessionDetailViewModel (см. отдельный файл)
-            }
+fun AppNavigation(live: LiveMonitorViewModel, history: HistoryViewModel, repository: AnalysisRepository) {
+    val nav = rememberNavController()
+    val entry by nav.currentBackStackEntryAsState()
+    val route = entry?.destination?.route
+    fun navigate(target: String) {
+        nav.navigate(target) {
+            popUpTo("live") { saveState = true }
+            launchSingleTop = true; restoreState = true
         }
     }
-}
-
-@Composable
-private fun BottomBar(navController: NavHostController) {
-    val currentEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = currentEntry?.destination?.route
-
-    NavigationBar {
-        NavigationBarItem(
-            selected = currentRoute == Screen.Live.route,
-            onClick = { navController.navigate(Screen.Live.route) },
-            icon = { Icon(Icons.Filled.Favorite, contentDescription = null) },
-            label = { Text(Screen.Live.label) }
-        )
-        NavigationBarItem(
-            selected = currentRoute == Screen.History.route,
-            onClick = { navController.navigate(Screen.History.route) },
-            icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
-            label = { Text(Screen.History.label) }
-        )
+    Scaffold(containerColor = MedicalColors.Background, bottomBar = {
+        if (route != "session_detail/{sessionId}") NavigationBar(containerColor = Color.White, tonalElevation = androidx.compose.ui.unit.Dp(0f)) {
+            val tabs = listOf(Triple("live","Главная",Icons.Default.Home), Triple("history","Записи",Icons.Default.List), Triple("device","Устройство",Icons.Default.Settings))
+            tabs.forEach { (target,label,icon) ->
+                NavigationBarItem(selected = route == target, onClick = { navigate(target) },
+                    icon = { Icon(icon, contentDescription = null) }, label = { Text(label) },
+                    colors = NavigationBarItemDefaults.colors(selectedIconColor = MedicalColors.Teal,
+                        selectedTextColor = MedicalColors.Teal, indicatorColor = MedicalColors.TealSoft,
+                        unselectedIconColor = MedicalColors.Muted, unselectedTextColor = MedicalColors.Muted))
+            }
+        }
+    }) { padding ->
+        NavHost(nav, startDestination = "live", modifier = Modifier.padding(padding)) {
+            composable("live") { LiveMonitorScreen(live, { navigate("history") }, { navigate("device") }) }
+            composable("history") { HistoryScreen(history) { nav.navigate("session_detail/${android.net.Uri.encode(it)}") } }
+            composable("device") { DeviceScreen(live) }
+            composable("session_detail/{sessionId}") { detail ->
+                SessionDetailScreen(detail.arguments?.getString("sessionId") ?: "", repository) { nav.popBackStack() }
+            }
+        }
     }
 }
