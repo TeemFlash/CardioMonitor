@@ -21,11 +21,15 @@ class LiveMonitorViewModel(
     val currentBpm = repository.livePulse
     val currentSpo2 = repository.liveSpo2
 
+    val snapshot = repository.snapshot
+    val syncStatus = repository.syncStatus
+    fun syncNow() = repository.syncNow()
+
     init {
-        repository.startListening(viewModelScope)
         viewModelScope.launch {
-            repository.liveEcg.collect { sample ->
-                _ecgWindow.value = (_ecgWindow.value + sample).takeLast(500)
+            repository.snapshot.collect { status ->
+                _ecgWindow.value = if (status == null || status.mode != 1 || !status.ecgOk) emptyList()
+                    else (_ecgWindow.value + status.ecg).takeLast(500)
             }
         }
     }

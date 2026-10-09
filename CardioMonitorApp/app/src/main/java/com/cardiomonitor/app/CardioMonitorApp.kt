@@ -17,14 +17,7 @@ class CardioMonitorApp : Application() {
         val dbPassphrase = "REPLACE_WITH_KEYSTORE_DERIVED_KEY".toByteArray()
         val db = AppDatabase.getInstance(this, dbPassphrase)
 
-        // TODO: host/port/сертификат — из настроек "спаривания" с устройством,
-        // а не хардкод. Например, экран "Подключить устройство" с QR-кодом.
-        val connectionManager = DeviceConnectionManager(
-            host = "192.168.4.1",
-            port = 8443,
-            trustedCertPem = "" // сертификат устройства, полученный при спаривании
-        )
-
-        repository = AnalysisRepository(db.analysisDao(), connectionManager)
+        val connectionManager = DeviceConnectionManager(this)
+        repository = AnalysisRepository(db, connectionManager)
     }
 }

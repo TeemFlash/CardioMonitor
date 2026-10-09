@@ -21,6 +21,7 @@ fun LiveMonitorScreen(viewModel: LiveMonitorViewModel, onRecords: () -> Unit, on
     val ecg by viewModel.ecgWindow.collectAsState()
     val bpm by viewModel.currentBpm.collectAsState()
     val spo2 by viewModel.currentSpo2.collectAsState()
+    val data by viewModel.snapshot.collectAsState()
     val connected = state is DeviceConnectionState.Connected
     val last = listOfNotNull(bpm?.timestampMs, spo2?.timestampMs, ecg.lastOrNull()?.timestampMs).maxOrNull()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -45,8 +46,9 @@ fun LiveMonitorScreen(viewModel: LiveMonitorViewModel, onRecords: () -> Unit, on
                 Text("ЭКГ", fontSize = 11.sp, color = MedicalColors.Teal)
             }
             EcgPaper(if (connected) ecg else emptyList(), Modifier.fillMaxWidth().height(145.dp))
-            Text(if (connected && ecg.isNotEmpty()) "Качество сигнала не передаётся" else "Для графика нужны данные прибора",
+            Text(if (connected && ecg.isNotEmpty()) "Сигнал принят прибором" else "Для графика нужны данные прибора",
                 color = MedicalColors.Muted, fontSize = 12.sp)
+            if (data?.mode == 1) InfoRow("ЧСС по ЭКГ", data?.ecgBpm?.let { "$it уд/мин" } ?: "Нет данных")
             Text("Относительная амплитуда • масштаб не калиброван", fontSize = 11.sp, color = MedicalColors.Muted)
         }
         MedicalCard {
@@ -54,13 +56,13 @@ fun LiveMonitorScreen(viewModel: LiveMonitorViewModel, onRecords: () -> Unit, on
                 Column { Text("Ваш прибор", fontWeight = FontWeight.SemiBold); Text("ESP32-C3 · CardioMonitor", fontSize = 12.sp, color = MedicalColors.Muted) }
                 StatusPill(if (connected) "На связи" else "Нет связи", connected)
             }
-            InfoRow("Заряд прибора", "Нет данных")
+            InfoRow("Заряд прибора", data?.battery?.let { "$it%" } ?: "Нет данных")
             TextButton(onClick = onDevice, contentPadding = PaddingValues(0.dp)) { Text("Открыть устройство →") }
         }
         Button(onClick = onRecords, modifier = Modifier.fillMaxWidth().height(50.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
             Text("Все записи")
         }
-        Text("Обмен с прибором ещё не реализован. Показания появятся после подключения передачи данных.",
+        Text("Подключите телефон и прибор к одной Wi-Fi-сети и запустите измерение на приборе. История microSD копируется автоматически.",
             color = MedicalColors.Muted, fontSize = 12.sp, lineHeight = 18.sp)
     }
 }

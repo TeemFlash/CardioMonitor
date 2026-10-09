@@ -18,6 +18,8 @@
 #include "HistoryAnalysis.h"
 #include "HistoryText.h"
 #include "DisplayModel.h"
+#include "LocalLink.h"
+LocalLink localLink;
 
 // ============================================================
 // ВАЖНО ДЛЯ Arduino IDE: перечисления Language и StringID должны
@@ -1396,6 +1398,18 @@ void loop() {
   if (!chord) {
     if (back) onBack(); else if (ok) onOk(); else if(up) onUp(); else if(down) onDown();
   }
+  poxProcessor.expire(millis()); ecgDetector.expire(millis());
+  LinkSnapshot link;
+  link.mode=currentScreen==SCR_ECG?1:currentScreen==SCR_PULSE?2:currentScreen==SCR_SPO2?3:0;
+  link.hr=link.mode && poxProcessor.hrValid?poxProcessor.beatAvg:-1;
+  link.spo2=link.mode && poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1;
+  link.battery=batteryPercent();link.finger=link.mode && poxProcessor.finger;
+  link.ecgOk=link.mode==1 && ecgDetector.quality;
+  link.ecgHr=link.ecgOk && ecgDetector.bpm>0?int(roundf(ecgDetector.bpm)):-1;
+  link.sd=sdAvailable;link.recording=logFileOpen;
+  const char* active=logFileOpen?logFile.name():nullptr;
+  if(active && active[0]=='/')++active;
+  localLink.service(link,active);
   serviceHistoryScan();
   serviceHistory();
   if (logFileOpen && (logUsed>=3072 || now-lastLogFlush>=1000)) {
@@ -1523,6 +1537,7 @@ void consumeSamples() {
       latestEcg=constrain(int(sample.a)*4095/26400,0,4095);
       ecgDetector.update(float(sample.a)*4095.0f/26400.0f,sample.ms);
       ecgPlot.push(sample.ms,ecgDetector.filtered,ecgDetector.quality);
+      localLink.addEcg(sample.ms,ecgDetector.filtered,ecgDetector.quality);
       if(currentScreen!=SCR_ECG)continue;
       if(ecgDetector.bpm>0) snprintf(metric,sizeof(metric),"%.1f",ecgDetector.bpm);
       snprintf(row,sizeof(row),"%lu,ecg,%lu,%.2f,%d,,,,,,,,%s\n",(unsigned long)(sample.ms-sessionStart),

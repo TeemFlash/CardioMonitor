@@ -1,86 +1,78 @@
 package com.cardiomonitor.app.data.repository
 
+import androidx.room.withTransaction
 import com.cardiomonitor.app.data.local.*
 import com.cardiomonitor.app.data.network.DeviceConnectionManager
-import com.cardiomonitor.app.data.network.IncomingEvent
+import com.cardiomonitor.app.data.importer.SdCsvReader
 import com.cardiomonitor.app.domain.model.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
+import java.io.File
 
 class AnalysisRepository(
-    private val dao: AnalysisDao,
+    private val db: AppDatabase,
     private val connectionManager: DeviceConnectionManager
 ) {
-    // Живые данные текущей сессии — для Live-экрана
-    private val _liveEcg = MutableSharedFlow<EcgSample>(extraBufferCapacity = 256)
-    val liveEcg: SharedFlow<EcgSample> = _liveEcg
-
-    private val _livePulse = MutableStateFlow<PulseReading?>(null)
-    val livePulse: StateFlow<PulseReading?> = _livePulse
-
-    private val _liveSpo2 = MutableStateFlow<SpO2Reading?>(null)
-    val liveSpo2: StateFlow<SpO2Reading?> = _liveSpo2
-
+    private val dao = db.analysisDao()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val snapshot = connectionManager.snapshot.asStateFlow()
     val connectionState = connectionManager.connectionState
+    val syncStatus = connectionManager.syncStatus.asStateFlow()
+    val livePulse = snapshot.map { it?.bpm?.let { bpm -> PulseReading(System.currentTimeMillis(), bpm) } }
+        .stateIn(scope, SharingStarted.Eagerly, null)
+    val liveSpo2 = snapshot.map { it?.spo2?.let { value -> SpO2Reading(System.currentTimeMillis(), value) } }
+        .stateIn(scope, SharingStarted.Eagerly, null)
 
-    private var currentSessionId: String? = null
+    init { connectionManager.start(scope, ::importArchive) }
+    fun syncNow() = connectionManager.syncNow()
 
-    fun startListening(scope: CoroutineScope) {
-        scope.launch(Dispatchers.IO) { connectionManager.connectAndListen() }
-        scope.launch(Dispatchers.IO) {
-            connectionManager.events().collect { event -> handleEvent(event) }
+    private suspend fun importArchive(device: String, name: String, file: File) {
+        val id = "$device/$name"
+        // Unknown older layouts still appear in history and keep an exact, exportable CSV.
+        val known = try { file.bufferedReader().use { val parser = SdCsvReader(it); parser.next(); parser.hasHeader() } }
+            catch (e: IllegalArgumentException) { false }
+        if (!known) {
+            dao.insertSession(SessionEntity(id, 0, null, device, null, null,
+                "$name • исходный CSV сохранён; формат не поддерживается для графика"))
+            return
         }
-    }
-
-    private suspend fun handleEvent(event: IncomingEvent) {
-        when (event) {
-            is IncomingEvent.SessionStarted -> {
-                currentSessionId = event.sessionId
-                dao.insertSession(
-                    SessionEntity(
-                        id = event.sessionId,
-                        startedAtMs = System.currentTimeMillis(),
-                        endedAtMs = null,
-                        deviceId = event.deviceId,
-                        averageBpm = null,
-                        averageSpo2 = null,
-                        note = null
-                    )
-                )
-            }
-            is IncomingEvent.SessionEnded -> {
-                val session = dao.getSession(event.sessionId)
-                if (session != null) {
-                    dao.updateSession(session.copy(endedAtMs = System.currentTimeMillis()))
+        // One transaction: interruptions cannot leave a half-imported recording.
+        db.withTransaction {
+            val session = SessionEntity(id, 0, null, device, null, null, name)
+            dao.insertSession(session)
+            val ecg = ArrayList<EcgSampleEntity>(256)
+            val pulse = ArrayList<PulseReadingEntity>(256)
+            val oxygen = ArrayList<Spo2ReadingEntity>(256)
+            var duration = 0L
+            var lastPulse = -1000L
+            var lastOxygen = -1000L
+            var sumBpm = 0L; var countBpm = 0L
+            var sumSpo2 = 0L; var countSpo2 = 0L
+            file.bufferedReader().use { reader ->
+                val csv = SdCsvReader(reader)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val row = csv.next() ?: break
+                    duration = maxOf(duration, row.ms)
+                    row.ecg?.let { ecg.add(EcgSampleEntity(sessionId = id, timestampMs = row.ms, value = it)) }
+                    if (row.bpm != null && row.ms - lastPulse >= 1000) {
+                        pulse.add(PulseReadingEntity(sessionId = id, timestampMs = row.ms, bpm = row.bpm))
+                        lastPulse = row.ms; sumBpm += row.bpm; countBpm++
+                    }
+                    if (row.spo2 != null && row.ms - lastOxygen >= 1000) {
+                        oxygen.add(Spo2ReadingEntity(sessionId = id, timestampMs = row.ms, percentage = row.spo2))
+                        lastOxygen = row.ms; sumSpo2 += row.spo2; countSpo2++
+                    }
+                    if (ecg.size >= 256) { dao.insertEcgSamples(ecg); ecg.clear() }
+                    if (pulse.size >= 256) { dao.insertPulseReadings(pulse); pulse.clear() }
+                    if (oxygen.size >= 256) { dao.insertSpo2Readings(oxygen); oxygen.clear() }
                 }
-                currentSessionId = null
-            }
-            is IncomingEvent.Ecg -> {
-                val sessionId = currentSessionId ?: return
-                dao.insertEcgSamples(event.samples.map {
-                    EcgSampleEntity(sessionId = sessionId, timestampMs = it.timestampMs, value = it.value)
-                })
-                event.samples.forEach { _liveEcg.emit(it) }
-            }
-            is IncomingEvent.Pulse -> {
-                val sessionId = currentSessionId
-                if (sessionId != null) {
-                    dao.insertPulseReading(
-                        PulseReadingEntity(sessionId = sessionId, timestampMs = event.reading.timestampMs, bpm = event.reading.bpm)
-                    )
-                }
-                _livePulse.value = event.reading
-            }
-            is IncomingEvent.Spo2 -> {
-                val sessionId = currentSessionId
-                if (sessionId != null) {
-                    dao.insertSpo2Reading(
-                        Spo2ReadingEntity(sessionId = sessionId, timestampMs = event.reading.timestampMs, percentage = event.reading.percentage)
-                    )
-                }
-                _liveSpo2.value = event.reading
+                require(csv.hasHeader()) { "В CSV нет заголовка" }
+                dao.insertEcgSamples(ecg); dao.insertPulseReadings(pulse); dao.insertSpo2Readings(oxygen)
+                dao.updateSession(session.copy(endedAtMs = duration,
+                    averageBpm = if (countBpm > 0) ((sumBpm + countBpm / 2) / countBpm).toInt() else null,
+                    averageSpo2 = if (countSpo2 > 0) ((sumSpo2 + countSpo2 / 2) / countSpo2).toInt() else null,
+                    note = "$name • дата не записана прибором • повреждённых строк: ${csv.damaged}"))
             }
         }
     }
@@ -89,7 +81,7 @@ class AnalysisRepository(
 
     suspend fun getFullSession(sessionId: String): AnalysisSession? {
         val session = dao.getSession(sessionId) ?: return null
-        val ecg = dao.getEcgSamples(sessionId).map { EcgSample(it.timestampMs, it.value) }
+        val ecg = dao.getEcgWindow(sessionId, 0, 4000).map { EcgSample(it.timestampMs, it.value) }
         val pulse = dao.getPulseReadings(sessionId).map { PulseReading(it.timestampMs, it.bpm) }
         val spo2 = dao.getSpo2Readings(sessionId).map { SpO2Reading(it.timestampMs, it.percentage) }
         return AnalysisSession(
@@ -106,5 +98,16 @@ class AnalysisRepository(
         )
     }
 
-    suspend fun deleteSession(sessionId: String) = dao.deleteSession(sessionId)
+    suspend fun ecgEnd(sessionId: String) = dao.getEcgEnd(sessionId) ?: 0L
+    suspend fun ecgWindow(sessionId: String, start: Long) = dao.getEcgWindow(sessionId, start, start + 4000)
+        .map { EcgSample(it.timestampMs, it.value) }
+    suspend fun legacyEcg(sessionId: String) = dao.getEcgSamples(sessionId)
+
+    fun originalCsv(sessionId: String) = connectionManager.archiveFile(sessionId)
+
+    suspend fun deleteSession(sessionId: String) {
+        dao.deleteSession(sessionId)
+        connectionManager.archiveFile(sessionId)?.delete()
+        // Keep the import fingerprint: deleting a phone copy must not resurrect it on next sync.
+    }
 }

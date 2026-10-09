@@ -124,7 +124,7 @@ fun EcgPaper(samples: List<EcgSample>, modifier: Modifier = Modifier, empty: Str
 }
 
 fun dateLabel(ms: Long, pattern: String = "dd MMM yyyy, HH:mm") =
-    SimpleDateFormat(pattern, Locale("ru")).format(Date(ms))
+    if (ms == 0L) "Дата неизвестна" else SimpleDateFormat(pattern, Locale("ru")).format(Date(ms))
 fun durationLabel(start: Long, end: Long?): String {
     if (end == null) return "Не завершена"
     val seconds = ((end - start) / 1000).coerceAtLeast(0)

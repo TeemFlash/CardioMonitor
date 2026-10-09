@@ -21,6 +21,12 @@ interface AnalysisDao {
     @Insert
     suspend fun insertSpo2Reading(reading: Spo2ReadingEntity)
 
+    @Insert
+    suspend fun insertPulseReadings(readings: List<PulseReadingEntity>)
+
+    @Insert
+    suspend fun insertSpo2Readings(readings: List<Spo2ReadingEntity>)
+
     @Query("SELECT * FROM sessions ORDER BY startedAtMs DESC")
     fun observeAllSessions(): Flow<List<SessionEntity>>
 
@@ -29,6 +35,12 @@ interface AnalysisDao {
 
     @Query("SELECT * FROM ecg_samples WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
     suspend fun getEcgSamples(sessionId: String): List<EcgSampleEntity>
+
+    @Query("SELECT * FROM ecg_samples WHERE sessionId = :sessionId AND timestampMs BETWEEN :start AND :end ORDER BY timestampMs ASC LIMIT 2000")
+    suspend fun getEcgWindow(sessionId: String, start: Long, end: Long): List<EcgSampleEntity>
+
+    @Query("SELECT MAX(timestampMs) FROM ecg_samples WHERE sessionId = :sessionId")
+    suspend fun getEcgEnd(sessionId: String): Long?
 
     @Query("SELECT * FROM pulse_readings WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
     suspend fun getPulseReadings(sessionId: String): List<PulseReadingEntity>
