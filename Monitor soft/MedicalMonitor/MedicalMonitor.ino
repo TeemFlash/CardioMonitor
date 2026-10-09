@@ -243,15 +243,15 @@ void clearDisplay() {
   tft.fillScreen(COL_BG);
   ++displayRevision;displayedScreen=currentScreen;displayedLanguage=currentLanguage;
 }
-void drawLargeReading(int value,uint16_t color) {
+void drawLargeReading(int value,uint16_t color,int x,int y) {
   char text[5];if(value<0)strcpy(text,"--");else snprintf(text,sizeof(text),"%d",value);
   if(numberCanvas.getBuffer()) {
     numberCanvas.fillScreen(COL_BG);numberCanvas.setTextWrap(false);
     numberCanvas.setTextSize(6);numberCanvas.setTextColor(color,COL_BG);
     numberCanvas.setCursor(0,0);numberCanvas.print(text);
-    tft.drawRGBBitmap(8,57,numberCanvas.getBuffer(),108,48);
+    tft.drawRGBBitmap(x,y,numberCanvas.getBuffer(),108,48);
   } else {
-    tft.setTextSize(6);tft.setTextColor(color,COL_BG);tft.setCursor(8,57);
+    tft.setTextSize(6);tft.setTextColor(color,COL_BG);tft.setCursor(x,y);
     tft.print(text);for(size_t i=strlen(text);i<3;++i)tft.print(" ");
   }
 }
@@ -467,36 +467,71 @@ void drawMeasurementFrame() {
   clearDisplay(); drawHeader(S_APP_TITLE); drawMeasurementTabs();
 }
 
+void drawPulseGauge(int value,bool compact) {
+  int cx=compact?244:160,cy=compact?127:141,r=compact?59:78;
+  static uint32_t epoch=0;static int previous=-1;static bool previousCompact=false;
+  bool fresh=epoch!=displayRevision || previousCompact!=compact;
+  if(fresh) {
+    for(int deg=0;deg<180;++deg) {
+      float a=deg*0.0174532925f,b=(deg+1)*0.0174532925f;
+      for(int ring=0;ring<3;++ring)
+        tft.drawLine(cx+int(cosf(a)*(r-ring)),cy-int(sinf(a)*(r-ring)),
+          cx+int(cosf(b)*(r-ring)),cy-int(sinf(b)*(r-ring)),COL_TRACK);
+    }
+    for(int deg=0;deg<=180;deg+=30) {
+      float a=deg*0.0174532925f;
+      tft.drawLine(cx+int(cosf(a)*(r-5)),cy-int(sinf(a)*(r-5)),
+        cx+int(cosf(a)*(r-10)),cy-int(sinf(a)*(r-10)),COL_TEXT_DIM);
+    }
+    tft.setTextSize(1);tft.setTextColor(COL_TEXT_DIM,COL_BG);
+    tft.setCursor(cx-r,cy+5);tft.print("30");
+    tft.setCursor(cx+r-18,cy+5);tft.print("220");
+    previous=-1;epoch=displayRevision;previousCompact=compact;
+  }
+  if(!fresh && previous==value)return;
+  // The needle indicates a display scale, never a clinical risk zone.
+  for(int pass=0;pass<2;++pass) {
+    int reading=pass?value:previous;if(reading<0)continue;
+    float angle=(220-constrain(reading,30,220))*3.14159265f/190.0f;
+    int x=cx+int(cosf(angle)*(r-14)),y=cy-int(sinf(angle)*(r-14));
+    uint16_t color=pass?COL_PULSE_LINE:COL_BG;
+    tft.drawLine(cx,cy,x,y,color);tft.drawLine(cx+1,cy,x+1,y,color);
+  }
+  previous=value;
+}
 void drawOpticalNumber(bool oxygen) {
-  uint16_t color=oxygen?COL_OXYGEN:COL_PULSE_LINE;
-  int value=oxygen?(poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1):(poxProcessor.hrValid?poxProcessor.beatAvg:-1);
-  char key[100];snprintf(key,sizeof(key),"%d/%d/%d/%d/%d/%d/%d",value,
-    poxProcessor.hrValid?poxProcessor.beatAvg:-1,poxProcessor.finger,
-    displayPulseStats.minimum(),displayPulseStats.average(),displayPulseStats.maximum(),oxygen);
+  int rate=poxProcessor.hrValid?poxProcessor.beatAvg:-1;
+  int saturation=poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1;
+  char key[100];snprintf(key,sizeof(key),"%d/%d/%d/%d/%d/%d/%d",rate,saturation,
+    poxProcessor.finger,displayPulseStats.minimum(),displayPulseStats.average(),displayPulseStats.maximum(),oxygen);
   static DisplayTextCache cache;if(!cache.update(key,displayRevision))return;
-  u8g2.setFontMode(0);u8g2.setBackgroundColor(COL_BG);
-  drawLargeReading(value,color);
-  u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(COL_TEXT_DIM);
-  u8g2.setCursor(10,116);u8g2.print(oxygen?UI("% oxygen","% кислорода","% оттегі"):T(S_BPM,currentLanguage));
-
-  tft.drawFastVLine(194,58,59,COL_TRACK);
+  drawPulseGauge(rate,oxygen);
+  u8g2.setFont(FONT_SMALL);u8g2.setFontMode(0);u8g2.setBackgroundColor(COL_BG);
+  u8g2.setForegroundColor(COL_TEXT_DIM);
   if(oxygen) {
-    u8g2.setCursor(204,67);u8g2.print(UI("Pulse","Пульс","Пульс"));
-    tft.setTextColor(COL_PULSE_LINE,COL_CARD);tft.setTextSize(2);tft.setCursor(204,74);
-    char rate[8];snprintf(rate,sizeof(rate),"%-3d",poxProcessor.beatAvg);
-    tft.print(poxProcessor.hrValid?rate:"-- ");
-    u8g2.setCursor(204,116);u8g2.print(poxProcessor.finger?UI("Finger detected","Палец на месте","Саусақ бар"):UI("Place finger   ","Нет пальца    ","Саусақ жоқ "));
+    drawLargeReading(saturation,COL_OXYGEN,12,91);
+    u8g2.setCursor(14,155);u8g2.print(UI("% oxygen","% кислорода","% оттегі"));
+    tft.setTextSize(3);tft.setTextColor(COL_PULSE_LINE,COL_BG);tft.setCursor(217,141);
+    char number[8];if(rate<0)strcpy(number,"-- ");else snprintf(number,sizeof(number),"%-3d",rate);
+    tft.print(number);
+    u8g2.setCursor(211,179);u8g2.print(T(S_BPM,currentLanguage));
+    u8g2.setCursor(12,209);u8g2.print(poxProcessor.finger?
+      UI("Finger detected   ","Палец на месте    ","Саусақ бар        "):
+      UI("Place finger      ","Приложите палец   ","Саусақты қойыңыз  "));
   } else {
-    const char* names[]={UI("Min","Мин.","Мин."),UI("Avg","Сред.","Орта"),UI("Max","Макс.","Макс.")};
+    drawLargeReading(rate,COL_PULSE_LINE,106,151);
+    u8g2.setCursor(222,183);u8g2.print(T(S_BPM,currentLanguage));
+    const char* names[]={UI("Min","Мин","Мин"),UI("Avg","Сред","Орта"),UI("Max","Макс","Макс")};
     const int values[]={displayPulseStats.minimum(),displayPulseStats.average(),displayPulseStats.maximum()};
     for(int i=0;i<3;++i) {
-      u8g2.setForegroundColor(COL_TEXT_DIM);u8g2.setCursor(204,69+i*21);u8g2.print(names[i]);
-      char text[12];if(values[i]<0)strcpy(text,"-- ");else snprintf(text,sizeof(text),"%-3d",values[i]);
-      u8g2.setForegroundColor(COL_TEXT);u8g2.setCursor(274,69+i*21);u8g2.print(text);
+      u8g2.setForegroundColor(COL_TEXT_DIM);u8g2.setCursor(12+i*105,214);u8g2.print(names[i]);
+      char number[8];if(values[i]<0)strcpy(number,"-- ");else snprintf(number,sizeof(number),"%-3d",values[i]);
+      u8g2.setForegroundColor(COL_TEXT);u8g2.setCursor(49+i*105,214);u8g2.print(number);
     }
   }
   u8g2.setFontMode(1);
 }
+
 void updateDisplayStatistics() {
   if(millis()-lastDisplayStats<1000)return;
   lastDisplayStats=millis();
@@ -587,19 +622,18 @@ void renderECG() {
 
 
 void enterPulseScreen() {
-  beginMeasurement(1);
+  beginMeasurement(2);
   drawMeasurementFrame();
-  graphX=0; drawGraphGrid(PPG_TOP,PPG_BOTTOM);
+
   openLogFile("pulse", "millis_ms,ir,red,hr_valid,spo2_valid,correlation,spo2,bpm");
   sessionStart=millis(); ecgPlot.reset(sessionStart);ecgPlotConnected=false; sensorCommand.store(sessionCommand);
 }
 
 void renderPulseOnly() {
-  renderEcgWave();updateDisplayStatistics();
-  static uint32_t last=0;if(millis()-last<200)return;last=millis();
-  drawOpticalNumber(false);drawMeasurementStatus(pulseState(),134);
-  drawMonitorCaption(ecgDetector.quality?UI("ECG / relative / session stats","ЭКГ / отн. ед. / за сеанс","ЭКГ / салыст. / сеанс"):
-    UI("ECG: check signal","ЭКГ: проверьте сигнал","ЭКГ: сигналды тексеріңіз"));
+  updateDisplayStatistics();
+  static uint32_t last=0;if(millis()-last<100)return;last=millis();
+  drawOpticalNumber(false);drawMeasurementStatus(pulseState(),234);
+  drawRecBadge(266,30,COL_BG,logFileOpen);
 }
 
 // ============================================================
@@ -608,19 +642,16 @@ void renderPulseOnly() {
 void enterSpo2Screen() {
   beginMeasurement(2);
   drawMeasurementFrame();
-  graphX=0;drawGraphGrid(PPG_TOP,PPG_BOTTOM);
+
   openLogFile("spo2", "millis_ms,ir,red,hr_valid,spo2_valid,correlation,bpm,spo2");
   sessionStart=millis(); ecgPlot.reset(sessionStart);ecgPlotConnected=false; sensorCommand.store(sessionCommand);
 }
 
 void renderSpo2Only() {
-  if(graphHasSample) {
-    drawWaveColumn(PPG_TOP,PPG_BOTTOM,graphLow*PPG_GAIN,graphHigh*PPG_GAIN);
-    graphHasSample=false;
-  }
-  static uint32_t last=0;if(millis()-last<200)return;last=millis();
-  drawOpticalNumber(true);drawMeasurementStatus(pulseState(),134);
-  drawMonitorCaption(UI("PPG / optical waveform","PPG / оптическая волна","PPG / оптикалық толқын"));
+  graphHasSample=false;
+  static uint32_t last=0;if(millis()-last<100)return;last=millis();
+  drawOpticalNumber(true);drawMeasurementStatus(pulseState(),234);
+  drawRecBadge(266,30,COL_BG,logFileOpen);
 }
 
 // ============================================================

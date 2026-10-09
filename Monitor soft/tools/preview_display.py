@@ -17,7 +17,7 @@ a.output.mkdir(parents=True, exist_ok=True)
 source = (root/'MedicalMonitor'/'MedicalMonitor.ino').read_text()
 names = ['clearDisplay', 'UI', 'ecgGraphTop', 'ecgGraphBottom', 'drawHeader', 'drawRecBadge',
          'drawMonitorNavigation', 'drawMeasurementTabs', 'drawMeasurementFrame',
-         'drawOpticalNumber', 'updateDisplayStatistics', 'drawMonitorCaption',
+         'drawPulseGauge', 'drawOpticalNumber', 'updateDisplayStatistics', 'drawMonitorCaption',
          'drawGraphGrid', 'drawWaveColumn', 'drawMeasurementStatus',
          'eraseEcgPlotColumn', 'renderEcgWave', 'renderECG', 'renderPulseOnly', 'renderSpo2Only']
 functions = []
@@ -104,7 +104,7 @@ struct {bool finger=true,hrValid=true,spo2Valid=true;int beatAvg=75;float spo2=9
 struct {bool initialized=true,quality=true;uint32_t start=0;float bpm=75;}ecgDetector;
 EcgPlotBuffer ecgPlot;
 DisplayStatistics displayPulseStats;
-void drawLargeReading(int value,uint16_t color){tft.setTextSize(6);tft.setTextColor(color);tft.setCursor(8,57);if(value<0)tft.print("--");else tft.print(value);}
+void drawLargeReading(int value,uint16_t color,int x,int y){tft.setTextSize(6);tft.setTextColor(color);tft.setCursor(x,y);if(value<0)tft.print("--");else tft.print(value);}
 void updateHeaderStatus(){tft.setTextSize(1);tft.setTextColor(0x536f);tft.setCursor(212,10);tft.print("SD  WiFi  --");}
 '''
 main = r'''
@@ -118,8 +118,8 @@ int main(int argc,char**argv){
  std::cout<<"<svg xmlns='http://www.w3.org/2000/svg' width='960' height='720' viewBox='0 0 320 240'><title>Illustrative firmware rendering, synthetic data, not a measurement</title>\n";
  drawMeasurementFrame();
  int top=currentScreen==SCR_ECG?GRAPH_TOP:PPG_TOP,bottom=currentScreen==SCR_ECG?GRAPH_BOTTOM:PPG_BOTTOM;
- drawGraphGrid(top,bottom);
- if(!empty){
+ if(currentScreen==SCR_ECG)drawGraphGrid(top,bottom);
+ if(!empty && currentScreen==SCR_ECG){
    ecgPlot.reset(0);
    for(int i=0;i<320;++i){
      float phase=fmodf(i*.01f,.8f),r=(phase-.2f)/.014f,t=(phase-.4f)/.06f;
