@@ -1,0 +1,14 @@
+name: Firmware native tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  signals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Signal processing and simulated I2C regression tests
+        run: python3 'Monitor soft/tests/run.py'
