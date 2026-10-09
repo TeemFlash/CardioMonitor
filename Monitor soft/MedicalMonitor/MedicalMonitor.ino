@@ -1397,10 +1397,10 @@ void setup() {
 void loop() {
   consumeSamples();
   uint32_t now=millis();
-  bool up=buttons[0].update(digitalRead(BTN_UP)==HIGH,now,!isMeasurementScreen());
-  bool down=buttons[1].update(digitalRead(BTN_DOWN)==HIGH,now,!isMeasurementScreen());
+  bool up=buttons[0].update(digitalRead(BTN_UP)==HIGH,now);
+  bool down=buttons[1].update(digitalRead(BTN_DOWN)==HIGH,now);
   bool ok=buttons[2].update(digitalRead(BTN_OK)==HIGH,now);
-  bool back=buttons[3].update(sensorHealth.ads && sensorHealth.back,now);
+  bool back=buttons[3].update(sensorHealth.back,now,sensorHealth.ads);
   // Emergency navigation when ADS1115 (and therefore BACK) is unavailable.
   static uint32_t chordStart=0; static bool chordUsed=false;
   bool chord=digitalRead(BTN_UP)==HIGH && digitalRead(BTN_DOWN)==HIGH;

@@ -53,12 +53,35 @@ int main() {
   ecg.update(4095,17000); assert(!ecg.quality && ecg.bpm==0);
   ecg.update(2048,17004); ecg.expire(17500); assert(!ecg.initialized);
 
-  DebouncedButton b;
-  assert(!b.update(true,100)); assert(!b.update(false,110));
-  assert(!b.update(true,120)); assert(!b.update(true,140));
-  assert(b.update(true,155)); assert(!b.update(true,170));
-  assert(!b.update(true,800)); assert(b.update(true,810,true));
-  assert(!b.update(false,900)); assert(!b.update(false,935));
+  // Identical one-touch semantics for UP, DOWN, OK and ADC BACK.
+  for(int key=0;key<4;++key) {
+    DebouncedButton b;
+    assert(!b.update(true,100));assert(!b.update(false,110));
+    assert(!b.update(true,120));assert(!b.update(true,169));
+    assert(b.update(true,170));
+    // Keeping a finger down while a screen changes cannot open another page.
+    for(uint32_t t=171;t<2000;++t)assert(!b.update(true,t));
+    // Low glitches longer than the old 35 ms must not produce a second event.
+    assert(!b.update(false,2000));assert(!b.update(false,2100));
+    assert(!b.update(true,2110));assert(!b.update(true,2170));
+    assert(!b.update(false,2200));assert(!b.update(false,2379));
+    assert(!b.update(false,2380));
+    assert(!b.update(true,2400));assert(b.update(true,2450));
+  }
+  DebouncedButton adc;
+  assert(!adc.update(true,10));assert(adc.update(true,60));
+  assert(!adc.update(false,100,false));assert(!adc.update(false,1000,false));
+  assert(!adc.update(true,1100));assert(!adc.update(true,1200));
+  assert(!adc.update(false,1300));assert(!adc.update(false,1480));
+  assert(!adc.update(true,1500));assert(adc.update(true,1550));
+  // Startup noise and counter wrap retain the debounce intervals.
+  DebouncedButton wrap;
+  assert(!wrap.update(true,UINT32_MAX-20));
+  assert(!wrap.update(true,10));assert(wrap.update(true,29));
+  assert(!wrap.update(false,40));assert(!wrap.update(false,219));
+  assert(!wrap.update(false,220));assert(!wrap.update(true,230));
+  assert(wrap.update(true,280));
+
   assert(estimateBatteryPercent(0)==-1); assert(estimateBatteryPercent(4.2f)==100);
   assert(estimateBatteryPercent(3.3f)==0); assert(estimateBatteryPercent(NAN)==-1);
   puts("signal, validity, reset, ECG, debounce and battery tests passed");

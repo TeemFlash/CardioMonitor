@@ -62,18 +62,20 @@ struct PulseOxProcessor {
 };
 
 struct DebouncedButton {
+  static constexpr uint32_t PRESS_MS = 50;
+  static constexpr uint32_t RELEASE_MS = 180;
   bool raw = false, stable = false;
-  uint32_t changed = 0, pressed = 0, repeated = 0;
-  bool update(bool value, uint32_t now, bool repeat = false) {
+  uint32_t changed = 0;
+  // One event per touch, including across screen transitions. No hold repeat.
+  // Unknown ADC state must not re-arm an already pressed BACK button.
+  bool update(bool value, uint32_t now, bool available = true) {
+    if (!available) { raw = stable; changed = now; return false; }
     if (value != raw) { raw = value; changed = now; }
-    if (raw != stable && now - changed >= 35) {
-      stable = raw;
-      if (stable) { pressed = repeated = now; return true; }
-    }
-    if (repeat && stable && now - pressed >= 600 && now - repeated >= 110) {
-      repeated = now; return true;
-    }
-    return false;
+    if (raw == stable) return false;
+    const uint32_t settling = raw ? PRESS_MS : RELEASE_MS;
+    if (uint32_t(now - changed) < settling) return false;
+    stable = raw;
+    return stable;
   }
 };
 
