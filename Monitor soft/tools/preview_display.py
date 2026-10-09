@@ -17,7 +17,7 @@ a.output.mkdir(parents=True, exist_ok=True)
 source = (root/'MedicalMonitor'/'MedicalMonitor.ino').read_text()
 names = ['clearDisplay', 'UI', 'ecgGraphTop', 'ecgGraphBottom', 'drawHeader', 'drawRecBadge',
          'drawMonitorNavigation', 'drawMeasurementTabs', 'drawMeasurementFrame',
-         'drawPulseGauge', 'drawOpticalNumber', 'updateDisplayStatistics', 'drawMonitorCaption',
+         'drawOpticalNumber', 'updateDisplayStatistics', 'drawMonitorCaption',
          'drawGraphGrid', 'drawWaveColumn', 'drawMeasurementStatus',
          'eraseEcgPlotColumn', 'renderEcgWave', 'renderECG', 'renderPulseOnly', 'renderSpo2Only']
 functions = []
@@ -104,7 +104,7 @@ struct {bool finger=true,hrValid=true,spo2Valid=true;int beatAvg=75;float spo2=9
 struct {bool initialized=true,quality=true;uint32_t start=0;float bpm=75;}ecgDetector;
 EcgPlotBuffer ecgPlot;
 DisplayStatistics displayPulseStats;
-void drawLargeReading(int value,uint16_t color,int x,int y){tft.setTextSize(6);tft.setTextColor(color);tft.setCursor(x,y);if(value<0)tft.print("--");else tft.print(value);}
+void drawLargeReading(int value,uint16_t color,int x,int y){tft.setTextSize(6);tft.setTextColor(color);tft.setCursor(x+(108-int((value<0?std::string("--"):std::to_string(value)).size())*36)/2,y);if(value<0)tft.print("--");else tft.print(value);}
 void updateHeaderStatus(){tft.setTextSize(1);tft.setTextColor(0x536f);tft.setCursor(212,10);tft.print("SD  WiFi  --");}
 '''
 main = r'''

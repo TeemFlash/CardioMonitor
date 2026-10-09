@@ -248,7 +248,7 @@ void drawLargeReading(int value,uint16_t color,int x,int y) {
   if(numberCanvas.getBuffer()) {
     numberCanvas.fillScreen(COL_BG);numberCanvas.setTextWrap(false);
     numberCanvas.setTextSize(6);numberCanvas.setTextColor(color,COL_BG);
-    numberCanvas.setCursor(0,0);numberCanvas.print(text);
+    numberCanvas.setCursor((108-int(strlen(text))*36)/2,0);numberCanvas.print(text);
     tft.drawRGBBitmap(x,y,numberCanvas.getBuffer(),108,48);
   } else {
     tft.setTextSize(6);tft.setTextColor(color,COL_BG);tft.setCursor(x,y);
@@ -467,67 +467,20 @@ void drawMeasurementFrame() {
   clearDisplay(); drawHeader(S_APP_TITLE); drawMeasurementTabs();
 }
 
-void drawPulseGauge(int value,bool compact) {
-  int cx=compact?244:160,cy=compact?127:141,r=compact?59:78;
-  static uint32_t epoch=0;static int previous=-1;static bool previousCompact=false;
-  bool fresh=epoch!=displayRevision || previousCompact!=compact;
-  if(fresh) {
-    for(int deg=0;deg<180;++deg) {
-      float a=deg*0.0174532925f,b=(deg+1)*0.0174532925f;
-      for(int ring=0;ring<3;++ring)
-        tft.drawLine(cx+int(cosf(a)*(r-ring)),cy-int(sinf(a)*(r-ring)),
-          cx+int(cosf(b)*(r-ring)),cy-int(sinf(b)*(r-ring)),COL_TRACK);
-    }
-    for(int deg=0;deg<=180;deg+=30) {
-      float a=deg*0.0174532925f;
-      tft.drawLine(cx+int(cosf(a)*(r-5)),cy-int(sinf(a)*(r-5)),
-        cx+int(cosf(a)*(r-10)),cy-int(sinf(a)*(r-10)),COL_TEXT_DIM);
-    }
-    tft.setTextSize(1);tft.setTextColor(COL_TEXT_DIM,COL_BG);
-    tft.setCursor(cx-r,cy+5);tft.print("30");
-    tft.setCursor(cx+r-18,cy+5);tft.print("220");
-    previous=-1;epoch=displayRevision;previousCompact=compact;
-  }
-  if(!fresh && previous==value)return;
-  // The needle indicates a display scale, never a clinical risk zone.
-  for(int pass=0;pass<2;++pass) {
-    int reading=pass?value:previous;if(reading<0)continue;
-    float angle=(220-constrain(reading,30,220))*3.14159265f/190.0f;
-    int x=cx+int(cosf(angle)*(r-14)),y=cy-int(sinf(angle)*(r-14));
-    uint16_t color=pass?COL_PULSE_LINE:COL_BG;
-    tft.drawLine(cx,cy,x,y,color);tft.drawLine(cx+1,cy,x+1,y,color);
-  }
-  previous=value;
-}
 void drawOpticalNumber(bool oxygen) {
-  int rate=poxProcessor.hrValid?poxProcessor.beatAvg:-1;
-  int saturation=poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1;
-  char key[100];snprintf(key,sizeof(key),"%d/%d/%d/%d/%d/%d/%d",rate,saturation,
-    poxProcessor.finger,displayPulseStats.minimum(),displayPulseStats.average(),displayPulseStats.maximum(),oxygen);
+  int value=oxygen?(poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1):
+    (poxProcessor.hrValid?poxProcessor.beatAvg:-1);
+  char key[40];snprintf(key,sizeof(key),"%d/%d/%d",value,poxProcessor.finger,oxygen);
   static DisplayTextCache cache;if(!cache.update(key,displayRevision))return;
-  drawPulseGauge(rate,oxygen);
+  drawLargeReading(value,oxygen?COL_OXYGEN:COL_PULSE_LINE,106,101);
   u8g2.setFont(FONT_SMALL);u8g2.setFontMode(0);u8g2.setBackgroundColor(COL_BG);
   u8g2.setForegroundColor(COL_TEXT_DIM);
+  const char* unit=oxygen?UI("% oxygen","% кислорода","% оттегі"):T(S_BPM,currentLanguage);
+  u8g2.setCursor((SCREEN_W-u8g2.getUTF8Width(unit))/2,170);u8g2.print(unit);
   if(oxygen) {
-    drawLargeReading(saturation,COL_OXYGEN,12,91);
-    u8g2.setCursor(14,155);u8g2.print(UI("% oxygen","% кислорода","% оттегі"));
-    tft.setTextSize(3);tft.setTextColor(COL_PULSE_LINE,COL_BG);tft.setCursor(217,141);
-    char number[8];if(rate<0)strcpy(number,"-- ");else snprintf(number,sizeof(number),"%-3d",rate);
-    tft.print(number);
-    u8g2.setCursor(211,179);u8g2.print(T(S_BPM,currentLanguage));
     u8g2.setCursor(12,209);u8g2.print(poxProcessor.finger?
       UI("Finger detected   ","Палец на месте    ","Саусақ бар        "):
       UI("Place finger      ","Приложите палец   ","Саусақты қойыңыз  "));
-  } else {
-    drawLargeReading(rate,COL_PULSE_LINE,106,151);
-    u8g2.setCursor(222,183);u8g2.print(T(S_BPM,currentLanguage));
-    const char* names[]={UI("Min","Мин","Мин"),UI("Avg","Сред","Орта"),UI("Max","Макс","Макс")};
-    const int values[]={displayPulseStats.minimum(),displayPulseStats.average(),displayPulseStats.maximum()};
-    for(int i=0;i<3;++i) {
-      u8g2.setForegroundColor(COL_TEXT_DIM);u8g2.setCursor(12+i*105,214);u8g2.print(names[i]);
-      char number[8];if(values[i]<0)strcpy(number,"-- ");else snprintf(number,sizeof(number),"%-3d",values[i]);
-      u8g2.setForegroundColor(COL_TEXT);u8g2.setCursor(49+i*105,214);u8g2.print(number);
-    }
   }
   u8g2.setFontMode(1);
 }
