@@ -21,3 +21,17 @@ public:
   int maximum()const{return count_?high_:-1;}
   int average()const{return count_?int((sum_+count_/2)/count_):-1;}
 };
+
+// A bounded dirty-field cache: a new screen epoch always forces a redraw.
+#include <string.h>
+class DisplayTextCache {
+  char previous_[160]{};
+  uint32_t epoch_=0;
+  bool valid_=false;
+public:
+  bool update(const char* value,uint32_t epoch) {
+    if(strlen(value)>=sizeof(previous_)){valid_=false;return true;}
+    if(valid_ && epoch_==epoch && strcmp(previous_,value)==0)return false;
+    strcpy(previous_,value);epoch_=epoch;valid_=true;return true;
+  }
+};

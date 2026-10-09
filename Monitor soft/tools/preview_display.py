@@ -15,7 +15,7 @@ p.add_argument('--output', type=Path, default=root/'build'/'preview-light')
 a = p.parse_args()
 a.output.mkdir(parents=True, exist_ok=True)
 source = (root/'MedicalMonitor'/'MedicalMonitor.ino').read_text()
-names = ['UI', 'ecgGraphTop', 'ecgGraphBottom', 'drawHeader', 'drawRecBadge',
+names = ['clearDisplay', 'UI', 'ecgGraphTop', 'ecgGraphBottom', 'drawHeader', 'drawRecBadge',
          'drawMonitorNavigation', 'drawMeasurementTabs', 'drawMeasurementFrame',
          'drawOpticalNumber', 'updateDisplayStatistics', 'drawMonitorCaption',
          'drawGraphGrid', 'drawWaveColumn', 'drawMeasurementStatus',
@@ -92,6 +92,7 @@ constexpr int SCR_ECG=1,SCR_PULSE=2,SCR_SPO2=3;
 constexpr int GRAPH_TOP=78,GRAPH_BOTTOM=170,PPG_TOP=142,PPG_BOTTOM=192;
 constexpr float PPG_GAIN=.015f;
 int currentScreen=SCR_PULSE,graphX=0,prevEcgY=0;
+uint32_t displayRevision=1;int displayedScreen=-1;int displayedLanguage=0;
 uint32_t lastHeader=0,lastDisplayStats=0,previousEcgBin=0;
 bool ppgPlotConnected=false,logFileOpen=false,sdError=false,fineGrid=true,ecgPlotConnected=false,graphHasSample=false,acquisitionStarted=true;
 float graphLow=0,graphHigh=0;
@@ -103,6 +104,7 @@ struct {bool finger=true,hrValid=true,spo2Valid=true;int beatAvg=75;float spo2=9
 struct {bool initialized=true,quality=true;uint32_t start=0;float bpm=75;}ecgDetector;
 EcgPlotBuffer ecgPlot;
 DisplayStatistics displayPulseStats;
+void drawLargeReading(int value,uint16_t color){tft.setTextSize(6);tft.setTextColor(color);tft.setCursor(8,57);if(value<0)tft.print("--");else tft.print(value);}
 void updateHeaderStatus(){tft.setTextSize(1);tft.setTextColor(0x536f);tft.setCursor(212,10);tft.print("SD  WiFi  --");}
 '''
 main = r'''

@@ -234,6 +234,27 @@ uint32_t sessionCommand = 0, sessionStart = 0;
 uint16_t activePpgEpoch=0;
 bool havePpgEpoch=false;
 uint32_t lastUi = 0, lastHeader = 0;
+uint32_t displayRevision=1;
+int displayedScreen=-1;
+Language displayedLanguage=LANG_RU;
+// 10,368 bytes once, not a full-screen framebuffer (153,600 bytes).
+GFXcanvas16 numberCanvas(108,48);
+void clearDisplay() {
+  tft.fillScreen(COL_BG);
+  ++displayRevision;displayedScreen=currentScreen;displayedLanguage=currentLanguage;
+}
+void drawLargeReading(int value,uint16_t color) {
+  char text[5];if(value<0)strcpy(text,"--");else snprintf(text,sizeof(text),"%d",value);
+  if(numberCanvas.getBuffer()) {
+    numberCanvas.fillScreen(COL_BG);numberCanvas.setTextWrap(false);
+    numberCanvas.setTextSize(6);numberCanvas.setTextColor(color,COL_BG);
+    numberCanvas.setCursor(0,0);numberCanvas.print(text);
+    tft.drawRGBBitmap(8,57,numberCanvas.getBuffer(),108,48);
+  } else {
+    tft.setTextSize(6);tft.setTextColor(color,COL_BG);tft.setCursor(8,57);
+    tft.print(text);for(size_t i=strlen(text);i<3;++i)tft.print(" ");
+  }
+}
 DisplayStatistics displayPulseStats;
 uint32_t lastDisplayStats=0;
 int latestEcg = 2048;
@@ -322,51 +343,15 @@ void kbLabelFor(int idx, char* out) {
 // ============================================================
 // 6. ИКОНКИ
 // ============================================================
-void iconHeartbeat(int x, int y, int w, int h, uint16_t color) {
-  int midY = y + h / 2;
-  int x1 = x + (int)(w * 0.25f);
-  int x2 = x + (int)(w * 0.35f);
-  int x3 = x + (int)(w * 0.45f);
-  int x4 = x + (int)(w * 0.55f);
-  int x5 = x + (int)(w * 0.65f);
-  tft.drawLine(x,  midY,         x1, midY,         color);
-  tft.drawLine(x1, midY,         x2, y,            color);
-  tft.drawLine(x2, y,            x3, y + h,        color);
-  tft.drawLine(x3, y + h,        x4, midY - h / 5,  color);
-  tft.drawLine(x4, midY - h / 5, x5, midY,          color);
-  tft.drawLine(x5, midY,         x + w, midY,       color);
-}
 
-void iconDrop(int cx, int cy, int r, uint16_t color) {
-  if (r < 2) r = 2;
-  tft.fillCircle(cx, cy + (int)(r * 0.15f), (int)(r * 0.75f), color);
-  tft.fillTriangle(cx - (int)(r * 0.5f), cy, cx + (int)(r * 0.5f), cy, cx, cy - (int)(r * 1.3f), color);
-}
 
-void iconGear(int cx, int cy, int r, uint16_t color) {
-  tft.drawCircle(cx, cy, r, color);
-  tft.fillCircle(cx, cy, (int)(r * 0.35f), color);
-  for (int i = 0; i < 8; i++) {
-    float a = i * (float)PI / 4.0f;
-    float cA = cosf(a), sA = sinf(a);
-    int x1 = cx + (int)(cA * (r + 1));
-    int y1 = cy + (int)(sA * (r + 1));
-    int x2 = cx + (int)(cA * (r + 5));
-    int y2 = cy + (int)(sA * (r + 5));
-    tft.drawLine(x1, y1, x2, y2, color);
-  }
-}
 
-void iconO2(int cx, int cy, int r, uint16_t color) {
-  tft.drawCircle(cx - r / 2, cy, (int)(r * 0.6f), color);
-  tft.drawCircle(cx + r / 2, cy, (int)(r * 0.6f), color);
-}
 
-void iconHistory(int cx, int cy, int r, uint16_t color) {
-  tft.drawCircle(cx, cy, r, color);
-  tft.drawLine(cx, cy, cx, cy - (int)(r * 0.6f), color); // часовая стрелка
-  tft.drawLine(cx, cy, cx + (int)(r * 0.5f), cy, color); // минутная стрелка
-}
+
+
+
+
+
 
 // ============================================================
 // 7. ОБРАБОТКА СИГНАЛОВ (ЭКГ / MAX30102)
@@ -386,37 +371,20 @@ float readBatteryVoltage() { return sensorHealth.ads ? sensorHealth.battery : 0;
 
 int batteryPercent() { return estimateBatteryPercent(readBatteryVoltage()); }
 
-void drawBatteryIcon(int x, int y, int percent) {
-  int w = 22, h = 12;
-  uint16_t col = percent > 50 ? COL_GOOD : (percent > 20 ? COL_WARN : COL_BAD);
-  tft.fillRect(x, y, w + 3, h, COL_BG_LIGHT);
-  tft.drawRoundRect(x, y, w, h, 2, COL_TEXT_DIM);
-  tft.fillRect(x + w, y + 3, 2, h - 6, COL_TEXT_DIM);
-  int fillW = (int)((w - 4) * (percent / 100.0f));
-  if (fillW > 0) tft.fillRect(x + 2, y + 2, fillW, h - 4, col);
-}
 
-void drawSignalBars(int x, int y, int activeBars, uint16_t activeColor, uint16_t inactiveColor) {
-  for (int i = 0; i < 4; i++) {
-    int bh = 3 + i * 3;
-    uint16_t c = (i < activeBars) ? activeColor : inactiveColor;
-    tft.fillRect(x + i * 5, y + (12 - bh), 3, bh, c);
-  }
-}
+
+
 
 void updateHeaderStatus() {
-  if (millis() - lastHeader < 1000) return;
-  lastHeader = millis();
-  tft.fillRect(210, 2, 108, 24, COL_BG_LIGHT);
-  int pct = batteryPercent();
-  drawBatteryIcon(288, 8, max(0, pct));
-  tft.setTextSize(1); tft.setTextColor(COL_TEXT_DIM, COL_BG_LIGHT);
-  tft.setCursor(263, 11);
-  if (pct < 0) tft.print("--"); else tft.print(pct);
-  drawSignalBars(236, 8, WiFi.status() == WL_CONNECTED ? rssiToBars(WiFi.RSSI()) : 0,
-                 COL_ACCENT, COL_TRACK);
-  tft.setTextColor(sdError ? COL_BAD : (sdAvailable ? COL_ACCENT : COL_TEXT_DIM), COL_BG_LIGHT);
-  tft.setCursor(212, 11); tft.print("SD");
+  if(millis()-lastHeader<1000)return;
+  lastHeader=millis();
+  int pct=batteryPercent();char charge[8];
+  if(pct<0)strcpy(charge,"--%");else snprintf(charge,sizeof(charge),"%d%%",pct);
+  char text[32];snprintf(text,sizeof(text),"SD%s W%s %s",sdError?"!":sdAvailable?"+":"-",
+    WiFi.status()==WL_CONNECTED?"+":"-",charge);
+  static DisplayTextCache cache;if(!cache.update(text,displayRevision))return;
+  tft.setTextSize(1);tft.setTextColor(COL_TEXT_DIM,COL_BG_LIGHT);tft.setCursor(212,11);
+  tft.print(text);for(size_t i=strlen(text);i<18;++i)tft.print(" ");
 }
 
 void drawHeader(StringID titleId) {
@@ -432,23 +400,11 @@ void drawHeader(StringID titleId) {
 // уже занято место под батарею/Wi-Fi/SD), в безопасном месте без
 // пересечения с графиком. Зелёная точка мигает, пока экран "живой"
 // (идёт измерение), красная "REC" появляется, когда файл на SD открыт.
-void drawRecBadge(int x, int y, uint16_t bg, bool logging) {
-  static unsigned long lastBlink = 0;
-  static bool on = false;
-  unsigned long now = millis();
-  if (now - lastBlink > 500) { lastBlink = now; on = !on; }
-
-  tft.fillRect(x, y, 46, 14, bg);
-  uint16_t dotColor = logging ? (on ? COL_BAD : bg) : COL_TEXT_DIM;
-  tft.fillCircle(x + 5, y + 7, 4, dotColor);
-  if (logging) {
-    tft.setTextSize(1);
-    tft.setTextColor(COL_BAD, bg);
-    tft.setCursor(x + 13, y + 4);
-    tft.print("REC");
-  } else if(sdError) {
-    tft.setTextSize(1); tft.setTextColor(COL_BAD,bg); tft.setCursor(x+13,y+4); tft.print("SD!");
-  }
+void drawRecBadge(int x,int y,uint16_t bg,bool logging) {
+  const char* text=sdError?"SD!":logging?"REC":"";
+  static DisplayTextCache cache;if(!cache.update(text,displayRevision))return;
+  tft.setTextSize(1);tft.setTextColor(sdError?COL_BAD:COL_PULSE_LINE,bg);
+  tft.setCursor(x,y+4);tft.print(text);for(size_t i=strlen(text);i<7;++i)tft.print(" ");
 }
 
 // ---------------- Логирование измерений на SD-карту ----------------
@@ -495,12 +451,7 @@ const char* UI(const char* en,const char* ru,const char* kz) {
 }
 int ecgGraphTop() { return currentScreen==SCR_PULSE?PPG_TOP:GRAPH_TOP; }
 int ecgGraphBottom() { return currentScreen==SCR_PULSE?PPG_BOTTOM:GRAPH_BOTTOM; }
-void drawMonitorNavigation() {
-  tft.fillRect(0,214,320,26,COL_BG);
-  tft.drawFastHLine(0,214,320,COL_TRACK);
-  u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(COL_TEXT_DIM);
-  printFit(UI("4 BACK: main menu","4 НАЗАД: главное меню","4 АРТҚА: негізгі мәзір"),8,232,304);
-}
+void drawMonitorNavigation() {}
 void drawMeasurementTabs() {
   const char* title=currentScreen==SCR_ECG?UI("ECG","ЭКГ","ЭКГ"):
     currentScreen==SCR_PULSE?UI("PULSE","ПУЛЬС","ПУЛЬС"):"SpO2";
@@ -513,33 +464,38 @@ void drawMeasurementTabs() {
   drawMonitorNavigation();
 }
 void drawMeasurementFrame() {
-  tft.fillScreen(COL_BG); drawHeader(S_APP_TITLE); drawMeasurementTabs();
+  clearDisplay(); drawHeader(S_APP_TITLE); drawMeasurementTabs();
 }
 
 void drawOpticalNumber(bool oxygen) {
   uint16_t color=oxygen?COL_OXYGEN:COL_PULSE_LINE;
   int value=oxygen?(poxProcessor.spo2Valid?int(roundf(poxProcessor.spo2)):-1):(poxProcessor.hrValid?poxProcessor.beatAvg:-1);
-  tft.fillRect(0,55,194,66,COL_BG);
-  tft.setTextSize(6);tft.setTextColor(color,COL_BG);tft.setCursor(8,57);
-  if(value<0) tft.print("--");else tft.print(value);
+  char key[100];snprintf(key,sizeof(key),"%d/%d/%d/%d/%d/%d/%d",value,
+    poxProcessor.hrValid?poxProcessor.beatAvg:-1,poxProcessor.finger,
+    displayPulseStats.minimum(),displayPulseStats.average(),displayPulseStats.maximum(),oxygen);
+  static DisplayTextCache cache;if(!cache.update(key,displayRevision))return;
+  u8g2.setFontMode(0);u8g2.setBackgroundColor(COL_BG);
+  drawLargeReading(value,color);
   u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(COL_TEXT_DIM);
   u8g2.setCursor(10,116);u8g2.print(oxygen?UI("% oxygen","% кислорода","% оттегі"):T(S_BPM,currentLanguage));
-  tft.fillRect(198,55,122,66,COL_BG);
+
   tft.drawFastVLine(194,58,59,COL_TRACK);
   if(oxygen) {
     u8g2.setCursor(204,67);u8g2.print(UI("Pulse","Пульс","Пульс"));
     tft.setTextColor(COL_PULSE_LINE,COL_CARD);tft.setTextSize(2);tft.setCursor(204,74);
-    if(poxProcessor.hrValid)tft.print(poxProcessor.beatAvg);else tft.print("--");
-    u8g2.setCursor(204,116);u8g2.print(poxProcessor.finger?UI("Finger detected","Палец на месте","Саусақ бар"):UI("Place finger","Нет пальца","Саусақ жоқ"));
+    char rate[8];snprintf(rate,sizeof(rate),"%-3d",poxProcessor.beatAvg);
+    tft.print(poxProcessor.hrValid?rate:"-- ");
+    u8g2.setCursor(204,116);u8g2.print(poxProcessor.finger?UI("Finger detected","Палец на месте","Саусақ бар"):UI("Place finger   ","Нет пальца    ","Саусақ жоқ "));
   } else {
     const char* names[]={UI("Min","Мин.","Мин."),UI("Avg","Сред.","Орта"),UI("Max","Макс.","Макс.")};
     const int values[]={displayPulseStats.minimum(),displayPulseStats.average(),displayPulseStats.maximum()};
     for(int i=0;i<3;++i) {
       u8g2.setForegroundColor(COL_TEXT_DIM);u8g2.setCursor(204,69+i*21);u8g2.print(names[i]);
-      char text[12];if(values[i]<0)strcpy(text,"--");else snprintf(text,sizeof(text),"%d",values[i]);
+      char text[12];if(values[i]<0)strcpy(text,"-- ");else snprintf(text,sizeof(text),"%-3d",values[i]);
       u8g2.setForegroundColor(COL_TEXT);u8g2.setCursor(274,69+i*21);u8g2.print(text);
     }
   }
+  u8g2.setFontMode(1);
 }
 void updateDisplayStatistics() {
   if(millis()-lastDisplayStats<1000)return;
@@ -547,22 +503,25 @@ void updateDisplayStatistics() {
   displayPulseStats.add(poxProcessor.beatAvg,poxProcessor.hrValid);
 }
 void drawMonitorCaption(const char* text) {
-  tft.fillRect(8,195,304,17,COL_BG);
-  u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(COL_TEXT_DIM);printFit(text,10,208,246);
   drawRecBadge(266,197,COL_BG,logFileOpen);
-  drawMonitorNavigation();
+  static DisplayTextCache cache;if(!cache.update(text,displayRevision))return;
+  tft.fillRect(8,195,248,17,COL_BG);
+  u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(COL_TEXT_DIM);printFit(text,10,208,246);
+
 }
 
 void drawMainMenu() {
   currentScreen=SCR_MAIN;
-  tft.fillScreen(COL_BG);
-  drawHeader(S_APP_TITLE);
+  bool full=displayedScreen!=currentScreen || displayedLanguage!=currentLanguage;
+  static int previous=-1;
+  if(full){clearDisplay();drawHeader(S_APP_TITLE);previous=-1;}
 
   int yPos[MAIN_MENU_COUNT] = {34, 70, 106, 142, 178};
   int cardH = 32;
   StringID labels[MAIN_MENU_COUNT] = {S_MENU_ECG, S_MENU_PULSE, S_MENU_SPO2, S_MENU_HISTORY, S_MENU_SETTINGS};
 
   for (int i = 0; i < MAIN_MENU_COUNT; i++) {
+    if(previous>=0 && i!=previous && i!=selectedItem)continue;
     bool sel = (selectedItem == i);
     uint16_t bg = sel ? COL_CARD_SEL : COL_CARD;
     uint16_t border = sel ? COL_ACCENT : COL_TRACK;
@@ -570,34 +529,16 @@ void drawMainMenu() {
     tft.fillRoundRect(14, yPos[i], SCREEN_W - 28, cardH, 9, bg);
     tft.drawRoundRect(14, yPos[i], SCREEN_W - 28, cardH, 9, border);
 
-    tft.fillCircle(44, yPos[i] + cardH / 2, 14, sel ? COL_ACCENT_DIM : COL_BG_LIGHT);
-    switch (i) {
-      case 0: iconHeartbeat(30, yPos[i] + cardH / 2 - 6, 26, 12, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-      case 1: iconDrop(44, yPos[i] + cardH / 2, 9, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-      case 2: iconO2(44, yPos[i] + cardH / 2, 10, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-      case 3: iconHistory(44, yPos[i] + cardH / 2, 9, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-      case 4: iconGear(44, yPos[i] + cardH / 2, 8, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-    }
-
     u8g2.setFont(FONT_MED);
     u8g2.setFontMode(1);
     u8g2.setForegroundColor(sel ? COL_TEXT : COL_TEXT_DIM);
     u8g2.setBackgroundColor(bg);
-    printFit(T(labels[i], currentLanguage),74,yPos[i] + cardH / 2 + 7,204);
+    printFit(T(labels[i], currentLanguage),26,yPos[i] + cardH / 2 + 7,268);
 
-    if (sel) {
-      tft.fillTriangle(SCREEN_W - 30, yPos[i] + cardH / 2 - 5,
-                        SCREEN_W - 30, yPos[i] + cardH / 2 + 5,
-                        SCREEN_W - 22, yPos[i] + cardH / 2, COL_ACCENT);
-    }
+
   }
 
-  u8g2.setFont(FONT_SMALL);
-  u8g2.setFontMode(1);
-  u8g2.setForegroundColor(COL_TEXT_DIM);
-  u8g2.setBackgroundColor(COL_BG);
-  u8g2.setCursor(8, 234);
-  u8g2.print(T(S_NAV_HINT, currentLanguage));
+  previous=selectedItem;
 }
 
 // ============================================================
@@ -623,11 +564,16 @@ void enterEcgScreen() {
 void renderECG() {
   renderEcgWave();
   static uint32_t last=0;if(millis()-last<200)return;last=millis();
-  tft.fillRect(0,55,320,21,COL_BG);
+  static DisplayTextCache rateCache;char rateKey[24];
+  int currentRate=ecgDetector.quality && ecgDetector.bpm>0?int(roundf(ecgDetector.bpm)):-1;
+  snprintf(rateKey,sizeof(rateKey),"%d",currentRate);
+  if(rateCache.update(rateKey,displayRevision)) {
+  u8g2.setFontMode(0);u8g2.setBackgroundColor(COL_BG);
   u8g2.setFont(FONT_SMALL);u8g2.setForegroundColor(COL_TEXT_DIM);
   u8g2.setCursor(8,69);u8g2.print(UI("Single channel / rel.","Один канал / отн. ед.","Бір арна / салыст."));
-  char rate[24];if(ecgDetector.quality && ecgDetector.bpm>0)snprintf(rate,sizeof(rate),"%d BPM",int(roundf(ecgDetector.bpm)));else strcpy(rate,"-- BPM");
-  u8g2.setForegroundColor(COL_PULSE_LINE);u8g2.setCursor(251,69);u8g2.print(rate);
+  char rate[24];if(ecgDetector.quality && ecgDetector.bpm>0)snprintf(rate,sizeof(rate),"%-3d BPM",int(roundf(ecgDetector.bpm)));else strcpy(rate,"--  BPM");
+  u8g2.setForegroundColor(COL_PULSE_LINE);u8g2.setCursor(251,69);u8g2.print(rate);u8g2.setFontMode(1);
+  }
   StringID state=(!sensorHealth.ads || !acquisitionStarted)?S_SENSOR_MISSING:
     (ecgDetector.initialized && millis()-ecgDetector.start<3000?S_COLLECTING:(ecgDetector.quality?S_READY:S_LEADS_OFF));
   drawMeasurementStatus(state,186);
@@ -682,7 +628,12 @@ void renderSpo2Only() {
 // ============================================================
 
 void drawSettingsMenu() {
-  tft.fillScreen(COL_BG); drawHeader(S_SETTINGS_TITLE);
+  static int previousPage=-1;
+  static DisplayTextCache rowCache[4];
+  int page=settingsSelected/4;
+  if(displayedScreen!=currentScreen || displayedLanguage!=currentLanguage || previousPage!=page) {
+    clearDisplay();drawHeader(S_SETTINGS_TITLE);previousPage=page;
+  }
   const StringID labels[] = {S_LANGUAGE, S_WIFI_LABEL, S_RECORDING, S_SCALE,
                              S_DIAGNOSTICS, S_WIFI_POWER, S_FORGET_WIFI, S_NOTCH, S_AUTO_PPG, S_SETTINGS_TITLE, S_SCALE, S_SETTINGS_TITLE, S_SCALE};
   StringID langNames[] = {S_LANG_NAME_EN, S_LANG_NAME_RU, S_LANG_NAME_KZ};
@@ -705,6 +656,8 @@ void drawSettingsMenu() {
       case 11: value = UI("Fixed / wired to 3.3 V","Фиксированная / 3.3 В","Тұрақты / 3.3 В"); break;
       case 12: value = "0.2 s/div (100 px/s)"; break;
     }
+    String key=String(i)+"/"+String(i==settingsSelected)+"/"+value;
+    if(!rowCache[row].update(key.c_str(),displayRevision))continue;
     int y=42+row*43; uint16_t bg=i==settingsSelected?COL_CARD_SEL:COL_CARD;
     tft.fillRoundRect(12,y,296,39,0,bg);
     u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT_DIM); u8g2.setBackgroundColor(bg);
@@ -715,7 +668,6 @@ void drawSettingsMenu() {
     printFit(label,24,y+14,270);
     u8g2.setForegroundColor(COL_TEXT); printFit(value,24,y+31,270);
   }
-  u8g2.setForegroundColor(COL_TEXT_DIM); printFit(T(S_NAV_HINT,currentLanguage),14,234,290);
 }
 
 void cycleLanguage() {
@@ -755,14 +707,16 @@ void enterHistoryScreen() {
 }
 
 void drawHistoryMenu() {
-  tft.fillScreen(COL_BG);
-  drawHeader(S_HISTORY_TITLE);
+  bool full=displayedScreen!=currentScreen || displayedLanguage!=currentLanguage;
+  static int previous=-1;
+  if(full){clearDisplay();drawHeader(S_HISTORY_TITLE);previous=-1;}
 
   int yPos[HISTORY_MENU_COUNT] = {42, 98, 154};
   int cardH = 42;
   StringID labels[HISTORY_MENU_COUNT] = {S_HISTORY_ECG, S_HISTORY_PULSE, S_HISTORY_SPO2};
 
   for (int i = 0; i < HISTORY_MENU_COUNT; i++) {
+    if(previous>=0 && i!=previous && i!=historyMenuSelected)continue;
     bool sel = (historyMenuSelected == i);
     uint16_t bg = sel ? COL_CARD_SEL : COL_CARD;
     uint16_t border = sel ? COL_ACCENT : COL_TRACK;
@@ -770,36 +724,20 @@ void drawHistoryMenu() {
     tft.fillRoundRect(14, yPos[i], SCREEN_W - 28, cardH,0, bg);
     tft.drawRoundRect(14, yPos[i], SCREEN_W - 28, cardH, 9, border);
 
-    tft.fillCircle(44, yPos[i] + cardH / 2, 16, sel ? COL_ACCENT_DIM : COL_BG_LIGHT);
-    switch (i) {
-      case 0: iconHeartbeat(30, yPos[i] + cardH / 2 - 7, 26, 14, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-      case 1: iconDrop(44, yPos[i] + cardH / 2, 10, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-      case 2: iconO2(44, yPos[i] + cardH / 2, 12, sel ? COL_ACCENT : COL_TEXT_DIM); break;
-    }
-
     u8g2.setFont(FONT_MED);
     u8g2.setFontMode(1);
     u8g2.setForegroundColor(sel ? COL_TEXT : COL_TEXT_DIM);
     u8g2.setBackgroundColor(bg);
-    printFit(T(labels[i], currentLanguage),74,yPos[i] + cardH / 2 + 7,204);
+    printFit(T(labels[i], currentLanguage),26,yPos[i] + cardH / 2 + 7,268);
 
-    if (sel) {
-      tft.fillTriangle(SCREEN_W - 30, yPos[i] + cardH / 2 - 5,
-                        SCREEN_W - 30, yPos[i] + cardH / 2 + 5,
-                        SCREEN_W - 22, yPos[i] + cardH / 2, COL_ACCENT);
-    }
+
   }
 
-  u8g2.setFont(FONT_SMALL);
-  u8g2.setFontMode(1);
-  u8g2.setForegroundColor(COL_TEXT_DIM);
-  u8g2.setBackgroundColor(COL_BG);
-  u8g2.setCursor(16, 228);
-  u8g2.print(T(S_NAV_HINT, currentLanguage));
+  previous=historyMenuSelected;
 }
 
 void drawHistoryList() {
-  tft.fillScreen(COL_BG); drawHeader(S_HISTORY_TITLE);
+  clearDisplay(); drawHeader(S_HISTORY_TITLE);
   u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT_DIM);
   if(historyScanning || !historyFileCount) {
     StringID msg=historyScanning?S_READING:(sdAvailable?S_HISTORY_EMPTY:S_HISTORY_NO_SD);
@@ -819,7 +757,6 @@ void drawHistoryList() {
       printFit(name,24,y+23,270);
     }
   }
-  u8g2.setForegroundColor(COL_TEXT_DIM); printFit(T(S_BACK_HINT,currentLanguage),14,233,292);
 }
 
 const char* HT(history_text::Id id) { return history_text::get(id,currentLanguage); }
@@ -926,7 +863,7 @@ void historyOxygenAnalysis() {
 
 void drawHistoryDetail() {
   using namespace history_text;
-  tft.fillScreen(COL_BG); drawHeader(S_HISTORY_TITLE);
+  clearDisplay(); drawHeader(S_HISTORY_TITLE);
   u8g2.setFont(FONT_SMALL); u8g2.setBackgroundColor(COL_BG);
   const Id tabs[]={Summary,Analysis,Help};
   for(int i=0;i<3;++i) {
@@ -1001,7 +938,6 @@ void drawHistoryDetail() {
       (historyTextLines+HISTORY_TEXT_ROWS-1)/HISTORY_TEXT_ROWS);
     printFit(page,260,218,50);
   }
-  printFit(HT(historyContextPending?ContextConfirm:Navigation),10,234,300);
 }
 
 // ============================================================
@@ -1015,20 +951,7 @@ int rssiToBars(int rssi) {
   return 0;
 }
 
-void drawWifiSpinner() {
-  static int frame = 0;
-  frame = (frame + 1) % 8;
-  int cx = SCREEN_W / 2, cy = 110, r = 20;
-  tft.fillRect(cx - 30, cy - 30, 60, 60, COL_BG);
-  for (int i = 0; i < 8; i++) {
-    float a = i * (float)PI / 4.0f;
-    int x = cx + (int)(cosf(a) * r);
-    int y = cy + (int)(sinf(a) * r);
-    int d = (i == frame) ? 5 : 2;
-    uint16_t c = (i == frame) ? COL_ACCENT : COL_TRACK;
-    tft.fillCircle(x, y, d, c);
-  }
-}
+void drawWifiSpinner() {}
 
 void drawWifiCaption(StringID id) {
   tft.fillRect(0, 150, SCREEN_W, 20, COL_BG);
@@ -1067,19 +990,11 @@ void drawWifiList() {
       continue;
     }
 
-    int bars = rssiToBars(wifiRSSI[idx]);
-    drawSignalBars(24, y + 8, bars, sel ? COL_ACCENT : COL_TEXT_DIM, COL_TRACK);
-
-    if (wifiEnc[idx] != WIFI_AUTH_OPEN) {
-      tft.drawRoundRect(56, y + 10, 10, 8, 2, sel ? COL_ACCENT : COL_TEXT_DIM);
-      tft.drawCircle(61, y + 9, 4, sel ? COL_ACCENT : COL_TEXT_DIM);
-    }
-
     u8g2.setFont(FONT_SMALL);
     u8g2.setFontMode(1);
     u8g2.setForegroundColor(sel ? COL_TEXT : COL_TEXT_DIM);
     u8g2.setBackgroundColor(bg);
-    printFit(wifiSSID[idx],76,y+24,218);
+    printFit(wifiSSID[idx],26,y+24,268);
   }
 }
 
@@ -1157,11 +1072,10 @@ void drawWifiResult() {
   u8g2.setFont(FONT_SMALL);
   u8g2.setForegroundColor(COL_TEXT_DIM);
   u8g2.setCursor(16, 195);
-  u8g2.print(T(S_BACK_HINT, currentLanguage));
 }
 
 void drawWifiScreen() {
-  tft.fillScreen(COL_BG);
+  clearDisplay();
   drawHeader(S_WIFI_LABEL);
   switch (wifiState) {
     case WIFI_UI_SCANNING:   drawWifiSpinner(); drawWifiCaption(S_WIFI_SCANNING);   break;
@@ -1408,7 +1322,7 @@ void onOk() {
       bool enabled=!ppgAutoEnabled.load(); ppgAutoEnabled.store(enabled);
       prefs.putBool("ppg_auto",enabled); drawSettingsMenu();
     } else {
-      currentScreen=SCR_FORGET; tft.fillScreen(COL_BG); drawHeader(S_FORGET_WIFI);
+      currentScreen=SCR_FORGET; clearDisplay(); drawHeader(S_FORGET_WIFI);
       u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT);
       printFit(T(S_CONFIRM,currentLanguage),14,115,290);
     }
@@ -1482,8 +1396,7 @@ void onBack() {
 // 16. SETUP / LOOP
 // ============================================================
 void drawSplash() {
-  tft.fillScreen(COL_BG);
-  iconHeartbeat(SCREEN_W / 2 - 40, SCREEN_H / 2 - 30, 80, 30, COL_ACCENT);
+  clearDisplay();
 
   u8g2.setFont(FONT_MED);
   u8g2.setFontMode(1);
@@ -1552,7 +1465,11 @@ void loop() {
       case SCR_PULSE: renderPulseOnly(); break;
       case SCR_SPO2: renderSpo2Only(); break;
       case SCR_WIFI: updateWifiScreen(); break;
-      case SCR_DIAGNOSTICS: if(now%1000<40) drawDiagnostics(); break;
+      case SCR_DIAGNOSTICS: {
+        static uint32_t lastDiagnostics=0;
+        if(now-lastDiagnostics>=1000){lastDiagnostics=now;drawDiagnostics();}
+        break;
+      }
       default: break;
     }
   }
@@ -1737,6 +1654,8 @@ void drawWaveColumn(int top,int bottom,float low,float high) {
   prevEcgY=mid;graphX=(graphX+1)%320;
 }
 void drawMeasurementStatus(StringID state,int baseline) {
+  static DisplayTextCache cache;char key[24];snprintf(key,sizeof(key),"%d/%d",int(state),baseline);
+  if(!cache.update(key,displayRevision))return;
   uint16_t bg=state==S_READY?COL_CARD_SEL:COL_WARNING_BG;
   tft.fillRect(0,baseline-12,320,16,bg);
   tft.fillRect(0,baseline-12,3,16,state==S_READY?COL_ACCENT:COL_WARN);
@@ -1761,25 +1680,32 @@ void drawSignalQuality(int baseline) {
   }
 }
 
+void drawDiagnosticLine(String text,int baseline,int width) {
+  static DisplayTextCache cache[8];int row=baseline>=210?7:(baseline-58)/22;
+  if(!cache[row].update(text.c_str(),displayRevision))return;
+  while(u8g2.getUTF8Width(text.c_str())<width-6)text+=" ";
+  u8g2.setFontMode(0);u8g2.setBackgroundColor(COL_BG);
+  printFit(text,14,baseline,width);u8g2.setFontMode(1);
+}
 void drawDiagnostics() {
-  tft.fillScreen(COL_BG); drawHeader(S_DIAGNOSTICS);
+  if(displayedScreen!=currentScreen){clearDisplay();drawHeader(S_DIAGNOSTICS);}
   u8g2.setFont(FONT_SMALL); u8g2.setForegroundColor(COL_TEXT);
   const char* missing=T(S_SENSOR_MISSING,currentLanguage);
   char line[128];
-  snprintf(line,sizeof(line),"MAX30102: %s",sensorHealth.max?"OK":missing); printFit(line,14,58,290);
-  snprintf(line,sizeof(line),"ADS1115: %s",sensorHealth.ads?"OK":missing); printFit(line,14,80,290);
+  snprintf(line,sizeof(line),"MAX30102: %s",sensorHealth.max?"OK":missing); drawDiagnosticLine(line,58,290);
+  snprintf(line,sizeof(line),"ADS1115: %s",sensorHealth.ads?"OK":missing); drawDiagnosticLine(line,80,290);
   if(sdAvailable) snprintf(line,sizeof(line),"SD: %llu / %llu MB",SD.usedBytes()/1048576,SD.totalBytes()/1048576);
   else snprintf(line,sizeof(line),"SD: %s",T(S_HISTORY_NO_SD,currentLanguage));
-  printFit(line,14,102,290);
+  drawDiagnosticLine(line,102,290);
   snprintf(line,sizeof(line),"RAM: %lu KB / min %lu KB",(unsigned long)(ESP.getFreeHeap()/1024),
-           (unsigned long)(ESP.getMinFreeHeap()/1024)); printFit(line,14,124,290);
-  snprintf(line,sizeof(line),"BAT: %.2f V  ~%d%%",readBatteryVoltage(),batteryPercent()); printFit(line,14,146,290);
+           (unsigned long)(ESP.getMinFreeHeap()/1024)); drawDiagnosticLine(line,124,290);
+  snprintf(line,sizeof(line),"BAT: %.2f V  ~%d%%",readBatteryVoltage(),batteryPercent()); drawDiagnosticLine(line,146,290);
   snprintf(line,sizeof(line),"Lost: %lu  late: %lu  I2C: %lu",(unsigned long)sensorHealth.dropped,
-           (unsigned long)sensorHealth.ecgLate,(unsigned long)sensorHealth.faults); printFit(line,14,168,290);
-  printFit(WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():"Wi-Fi: --",14,190,290);
+           (unsigned long)sensorHealth.ecgLate,(unsigned long)sensorHealth.faults); drawDiagnosticLine(line,168,290);
+  drawDiagnosticLine(WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():"Wi-Fi: --",190,290);
   snprintf(line,sizeof(line),"LED R/IR: %u/%u  AUTO: %s",sensorHealth.ledRed,sensorHealth.ledIr,
-    ppgAutoEnabled.load()?"ON":"OFF"); printFit(line,14,210,290);
-  printFit(acquisitionStarted?"OK: SD   UP + DOWN (hold): BACK":"TASK ERROR: restart",14,228,292);
+    ppgAutoEnabled.load()?"ON":"OFF"); drawDiagnosticLine(line,210,290);
+  if(!acquisitionStarted)printFit("TASK ERROR: restart",14,228,292);
 }
 void serviceHistory() {
   if(!historyLoading || currentScreen!=SCR_HISTORY_DETAIL) return;
