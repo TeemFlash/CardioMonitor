@@ -89,7 +89,7 @@ void printFit(String text,int x,int baseline,int width){
 #define SCREEN_W 320
 #define HEADER_H 28
 constexpr int SCR_ECG=1,SCR_PULSE=2,SCR_SPO2=3;
-constexpr int GRAPH_TOP=87,GRAPH_BOTTOM=170,PPG_TOP=151,PPG_BOTTOM=192;
+constexpr int GRAPH_TOP=78,GRAPH_BOTTOM=170,PPG_TOP=142,PPG_BOTTOM=192;
 constexpr float PPG_GAIN=.015f;
 int currentScreen=SCR_PULSE,graphX=0,prevEcgY=0;
 uint32_t lastHeader=0,lastDisplayStats=0,previousEcgBin=0;
