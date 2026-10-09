@@ -53,34 +53,46 @@ int main() {
   ecg.update(4095,17000); assert(!ecg.quality && ecg.bpm==0);
   ecg.update(2048,17004); ecg.expire(17500); assert(!ecg.initialized);
 
-  // Identical one-touch semantics for UP, DOWN, OK and ADC BACK.
+  // Rapid deliberate taps must all register, without a second "unlock" press.
   for(int key=0;key<4;++key) {
-    DebouncedButton b;
-    assert(!b.update(true,100));assert(!b.update(false,110));
-    assert(!b.update(true,120));assert(!b.update(true,169));
-    assert(b.update(true,170));
-    // Keeping a finger down while a screen changes cannot open another page.
-    for(uint32_t t=171;t<2000;++t)assert(!b.update(true,t));
-    // Low glitches longer than the old 35 ms must not produce a second event.
-    assert(!b.update(false,2000));assert(!b.update(false,2100));
-    assert(!b.update(true,2110));assert(!b.update(true,2170));
-    assert(!b.update(false,2200));assert(!b.update(false,2379));
-    assert(!b.update(false,2380));
-    assert(!b.update(true,2400));assert(b.update(true,2450));
+    DebouncedButton b;int events=0;
+    for(uint32_t t=0;t<1000;++t)events+=b.update(t%100<50,t);
+    assert(events==10);
   }
+  DebouncedButton b;
+  assert(!b.update(true,100));assert(!b.update(false,110));
+  assert(!b.update(true,120));assert(!b.update(true,139));assert(b.update(true,140));
+  for(uint32_t t=141;t<2000;++t)assert(!b.update(true,t));
+  assert(!b.update(false,2000));assert(!b.update(false,2024));
+  assert(!b.update(true,2024));assert(!b.update(true,2100)); // brief low glitch
+  assert(!b.update(false,2200));assert(!b.update(false,2225));
+  assert(!b.update(true,2250));assert(b.update(true,2270));
   DebouncedButton adc;
-  assert(!adc.update(true,10));assert(adc.update(true,60));
+  assert(!adc.update(true,10));assert(adc.update(true,30));
   assert(!adc.update(false,100,false));assert(!adc.update(false,1000,false));
   assert(!adc.update(true,1100));assert(!adc.update(true,1200));
-  assert(!adc.update(false,1300));assert(!adc.update(false,1480));
-  assert(!adc.update(true,1500));assert(adc.update(true,1550));
-  // Startup noise and counter wrap retain the debounce intervals.
+  assert(!adc.update(false,1300));assert(!adc.update(false,1325));
+  assert(!adc.update(true,1350));assert(adc.update(true,1370));
+  DebouncedButton repeat;
+  assert(!repeat.update(true,0,true,true));assert(repeat.update(true,20,true,true));
+  for(uint32_t t=21;t<520;++t)assert(!repeat.update(true,t,true,true));
+  assert(repeat.update(true,520,true,true));
+  assert(!repeat.update(true,739,true,true));assert(repeat.update(true,740,true,true));
+  assert(repeat.update(true,1520,true,true));
+  assert(!repeat.update(true,1639,true,true));assert(repeat.update(true,1640,true,true));
+  assert(repeat.update(true,3020,true,true));
+  assert(!repeat.update(true,3079,true,true));assert(repeat.update(true,3080,true,true));
+  assert(!repeat.update(true,3080,true,true)); // no burst after slow rendering
+  assert(!repeat.update(false,3140,true,true)); // repeat stops at first raw release
+  assert(!repeat.update(false,3165,true,true));
+  assert(!repeat.update(true,3200,true,true));assert(repeat.update(true,3220,true,true));
+  assert(!repeat.update(true,3500,true,false)); // leave keyboard while held
+  assert(!repeat.update(true,4000,true,true)); // entering it again cannot arm repeat
   DebouncedButton wrap;
-  assert(!wrap.update(true,UINT32_MAX-20));
-  assert(!wrap.update(true,10));assert(wrap.update(true,29));
-  assert(!wrap.update(false,40));assert(!wrap.update(false,219));
-  assert(!wrap.update(false,220));assert(!wrap.update(true,230));
-  assert(wrap.update(true,280));
+  assert(!wrap.update(true,UINT32_MAX-10));
+  assert(!wrap.update(true,8));assert(wrap.update(true,9));
+  assert(!wrap.update(false,40));assert(!wrap.update(false,65));
+  assert(!wrap.update(true,80));assert(wrap.update(true,100));
 
   assert(estimateBatteryPercent(0)==-1); assert(estimateBatteryPercent(4.2f)==100);
   assert(estimateBatteryPercent(3.3f)==0); assert(estimateBatteryPercent(NAN)==-1);

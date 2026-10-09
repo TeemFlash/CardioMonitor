@@ -62,20 +62,32 @@ struct PulseOxProcessor {
 };
 
 struct DebouncedButton {
-  static constexpr uint32_t PRESS_MS = 50;
-  static constexpr uint32_t RELEASE_MS = 180;
-  bool raw = false, stable = false;
-  uint32_t changed = 0;
-  // One event per touch, including across screen transitions. No hold repeat.
-  // Unknown ADC state must not re-arm an already pressed BACK button.
-  bool update(bool value, uint32_t now, bool available = true) {
-    if (!available) { raw = stable; changed = now; return false; }
+  static constexpr uint32_t PRESS_MS = 20;
+  static constexpr uint32_t RELEASE_MS = 25;
+  bool raw = false, stable = false, repeatArmed = false;
+  uint32_t changed = 0, pressed = 0, repeated = 0;
+  bool update(bool value, uint32_t now, bool available = true, bool repeat = false) {
+    if (!available) {
+      raw = stable; changed = now; repeatArmed = false; return false;
+    }
+    if (!repeat) repeatArmed = false;
     if (value != raw) { raw = value; changed = now; }
-    if (raw == stable) return false;
-    const uint32_t settling = raw ? PRESS_MS : RELEASE_MS;
-    if (uint32_t(now - changed) < settling) return false;
-    stable = raw;
-    return stable;
+    if (raw != stable && uint32_t(now-changed) >= (raw ? PRESS_MS : RELEASE_MS)) {
+      stable = raw;
+      if (stable) {
+        pressed = repeated = now; repeatArmed = repeat; return true;
+      }
+      repeatArmed = false;
+    }
+    // Never repeat through a release glitch, a screen change or an ADC error.
+    if (repeatArmed && repeat && raw && stable) {
+      uint32_t held = now-pressed;
+      uint32_t interval = held<1500 ? 220 : held<3000 ? 120 : 60;
+      if (held>=500 && uint32_t(now-repeated)>=interval) {
+        repeated=now;return true; // at most one event, no catch-up burst
+      }
+    }
+    return false;
   }
 };
 

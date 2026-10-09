@@ -1397,8 +1397,9 @@ void setup() {
 void loop() {
   consumeSamples();
   uint32_t now=millis();
-  bool up=buttons[0].update(digitalRead(BTN_UP)==HIGH,now);
-  bool down=buttons[1].update(digitalRead(BTN_DOWN)==HIGH,now);
+  const bool keyboard=currentScreen==SCR_WIFI && wifiState==WIFI_UI_PASSWORD;
+  bool up=buttons[0].update(digitalRead(BTN_UP)==HIGH,now,true,keyboard);
+  bool down=buttons[1].update(digitalRead(BTN_DOWN)==HIGH,now,true,keyboard);
   bool ok=buttons[2].update(digitalRead(BTN_OK)==HIGH,now);
   bool back=buttons[3].update(sensorHealth.back,now,sensorHealth.ads);
   // Emergency navigation when ADS1115 (and therefore BACK) is unavailable.
