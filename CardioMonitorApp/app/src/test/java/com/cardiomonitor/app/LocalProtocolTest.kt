@@ -10,6 +10,28 @@ import java.io.EOFException
 import java.io.IOException
 
 class LocalProtocolTest {
+    @Test fun readsAbsoluteStartWithoutChangingRelativeSampleTimes() {
+        val csv = SdCsvReader(("millis_ms,ir,red,hr_valid,spo2_valid,correlation,bpm,spo2\n" +
+            "# started_at_unix_ms=1791586800123\n1000,1,2,1,1,0.9,72,98\n").reader().buffered())
+        assertEquals(1000L, csv.next()!!.ms)
+        assertEquals(1791586800123L, csv.startedAtMs)
+    }
+    @Test fun lateClockSyncMetadataIsReadAtEndOfRecording() {
+        val csv = SdCsvReader(("millis_ms,ir,red,hr_valid,spo2_valid,correlation,bpm,spo2\n" +
+            "1000,1,2,1,1,0.9,72,98\n# started_at_unix_ms=1791586800123\n").reader().buffered())
+        csv.next(); assertNull(csv.startedAtMs)
+        assertNull(csv.next()); assertEquals(1791586800123L, csv.startedAtMs)
+    }
+    @Test fun invalidAndConflictingDatesCannotReplaceFirstValidDate() {
+        val csv = SdCsvReader(("# started_at_unix_ms=0\n# started_at_unix_ms=garbage\n" +
+            "# started_at_unix_ms=4102444800000\n# started_at_unix_ms=1791586800123\n" +
+            "# started_at_unix_ms=1791586900123\n").reader().buffered())
+        assertNull(csv.next()); assertEquals(1791586800123L, csv.startedAtMs)
+    }
+    @Test fun oldRecordHasNoInventedDate() {
+        val csv = SdCsvReader("millis_ms,ir,red,hr_valid,spo2_valid,correlation,bpm,spo2\n1000,1,2,1,1,0.9,72,98\n".reader().buffered())
+        csv.next(); csv.next(); assertNull(csv.startedAtMs)
+    }
     @Test fun framingDoesNotEatBinaryPayload() {
         val input = ByteArrayInputStream("{header}\nabc\n{end}\n".toByteArray())
         assertEquals("{header}", readProtocolLine(input))

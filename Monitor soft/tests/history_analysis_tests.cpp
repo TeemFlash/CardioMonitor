@@ -340,7 +340,21 @@ static void boundedByteFraming() {
   assert(a.ioError() && a.metric(Metric::Pulse).validMs == 80);
 }
 
+void recordingDates() {
+  HistoryAnalysis a;
+  assert(a.startedAtMs()==0);
+  a.feedLine("# started_at_unix_ms=bad");
+  a.feedLine("# started_at_unix_ms=4102444800000");
+  assert(a.startedAtMs()==0);
+  a.feedLine("# started_at_unix_ms=1791586800123");
+  assert(a.startedAtMs()==1791586800123ULL);
+  a.feedLine("# started_at_unix_ms=1791586900123");
+  assert(a.startedAtMs()==1791586800123ULL);
+  a.reset();assert(a.startedAtMs()==0);
+}
+
 int main() {
+  recordingDates();
   basicAndHeaders(); thresholdsAndEpisodes(); evidenceAndContinuity();
   mixedStreamsAndClock(); opticalEpochGaps(); malformedAndIo(); boundedByteFraming();
   puts("History analysis: schemas, evidence, coverage, episodes, gaps, mixed streams, wrap, corruption and byte framing passed");

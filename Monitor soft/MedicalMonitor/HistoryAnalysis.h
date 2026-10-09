@@ -123,9 +123,10 @@ class HistoryAnalysis {
     schema_ = Schema::None;
     malformed_ = gaps_ = 0;
     haveSpan_ = finished_ = headerSeen_ = corrupt_ = ioError_ = false;
-    firstMs_ = lastMs_ = 0;
+    firstMs_ = lastMs_ = 0; startedAtMs_ = 0;
   }
   const MetricSummary& metric(Metric which) const { return metrics_[unsigned(which)]; }
+  uint64_t startedAtMs() const { return startedAtMs_; }
   uint64_t durationMs() const { return haveSpan_ ? uint64_t(lastMs_ - firstMs_) : 0; }
   uint32_t malformedRows() const { return malformed_; }
   uint32_t gapCount() const { return gaps_; }
@@ -161,6 +162,13 @@ class HistoryAnalysis {
     char line[MaxLineLength + 1];
     memcpy(line, input, length); line[length] = 0;
     if (line[0] == '#') {
+      const char* key="# started_at_unix_ms=";
+      if(!startedAtMs_ && !strncmp(line,key,strlen(key))) {
+        const char* value=line+strlen(key);bool valid=strlen(value)==13;
+        for(const char* c=value;*c;++c)valid=valid && *c>='0' && *c<='9';
+        uint64_t ms=valid?strtoull(value,nullptr,10):0;
+        if(ms>=1704067200000ULL && ms<4102444800000ULL)startedAtMs_=ms;
+      }
       if (!strncmp(line, "# acquisition_gap", 17) &&
           (!line[17] || line[17] == ' ' || line[17] == '\t')) {
         noteGap(); breakAll();
@@ -250,6 +258,7 @@ class HistoryAnalysis {
   static constexpr const char* OxygenHeader =
     "millis_ms,ir,red,hr_valid,spo2_valid,correlation,bpm,spo2";
   MetricSummary metrics_[3];
+  uint64_t startedAtMs_ = 0;
   Schema schema_ = Schema::None;
   uint32_t malformed_ = 0, gaps_ = 0;
   bool haveSpan_ = false, finished_ = false, headerSeen_ = false, corrupt_ = false, ioError_ = false;

@@ -5,7 +5,21 @@
 #include <lwip/sockets.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/time.h>
+#include <time.h>
 
+// UTC comes from the ESP32 SNTP client, independently of any phone.
+inline uint64_t localUtcMillis() {
+  timeval tv{};gettimeofday(&tv,nullptr);
+  uint64_t ms=uint64_t(tv.tv_sec)*1000+tv.tv_usec/1000;
+  return ms>=1704067200000ULL && ms<4102444800000ULL?ms:0;
+}
+inline void serviceNetworkClock() {
+  static bool wasConnected=false;
+  bool connected=WiFi.status()==WL_CONNECTED;
+  if(connected && !wasConnected)configTime(0,0,"pool.ntp.org","time.google.com");
+  wasConnected=connected;
+}
 // Local, read-only protocol v1. All SD access runs in the main loop.
 // Two nonblocking sockets: one live stream and one archive transfer.
 struct LinkSnapshot {
@@ -61,8 +75,8 @@ class LocalLink {
     } else queue(p,"{\"type\":\"error\",\"message\":\"bad_command\"}\n");
   }
   void live(Peer& p,const LinkSnapshot& s,uint32_t now) {
-    int n=snprintf(p.tx,TX,"{\"type\":\"live\",\"seq\":%lu,\"ms\":%lu,\"mode\":%d,\"hr\":%d,\"ecg_hr\":%d,\"spo2\":%d,\"battery\":%d,\"finger\":%s,\"ecg_ok\":%s,\"sd\":%s,\"recording\":%s,\"files\":%d,\"dropped\":%lu,\"ecg\":[",
-      (unsigned long)++sequence,(unsigned long)now,s.mode,s.hr,s.ecgHr,s.spo2,s.battery,s.finger?"true":"false",s.ecgOk?"true":"false",s.sd?"true":"false",s.recording?"true":"false",recordCount,(unsigned long)dropped);
+    int n=snprintf(p.tx,TX,"{\"type\":\"live\",\"seq\":%lu,\"ms\":%lu,\"utc_ms\":%llu,\"mode\":%d,\"hr\":%d,\"ecg_hr\":%d,\"spo2\":%d,\"battery\":%d,\"finger\":%s,\"ecg_ok\":%s,\"sd\":%s,\"recording\":%s,\"files\":%d,\"dropped\":%lu,\"ecg\":[",
+      (unsigned long)++sequence,(unsigned long)now,(unsigned long long)localUtcMillis(),s.mode,s.hr,s.ecgHr,s.spo2,s.battery,s.finger?"true":"false",s.ecgOk?"true":"false",s.sd?"true":"false",s.recording?"true":"false",recordCount,(unsigned long)dropped);
     for(int i=0;i<pointCount && s.ecgOk;++i) {
       int written=snprintf(p.tx+n,TX-n,"%s[%lu,%.3f]",i?",":"",(unsigned long)points[i].ms,points[i].value);
       if(written<0 || written>=TX-n-4){++dropped;break;}n+=written;

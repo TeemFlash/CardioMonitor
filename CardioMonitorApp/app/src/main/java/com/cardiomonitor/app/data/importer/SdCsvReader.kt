@@ -9,6 +9,8 @@ import kotlin.math.roundToInt
 class SdCsvReader(private val reader: BufferedReader) {
     data class Row(val ms: Long, val ecg: Float?, val bpm: Int?, val spo2: Int?)
     private var columns: Map<String, Int>? = null
+    var startedAtMs: Long? = null
+        private set
     var damaged = 0
         private set
     private fun line(): String? {
@@ -25,6 +27,10 @@ class SdCsvReader(private val reader: BufferedReader) {
         while (true) {
             val line = line() ?: return null
             require(line.length <= 4096) { "Слишком длинная строка CSV" }
+            if (line.startsWith("# started_at_unix_ms=")) {
+                val value = line.substringAfter('=').trim().toLongOrNull()
+                if (startedAtMs == null && value != null && value in 1704067200000L until 4102444800000L) startedAtMs = value
+            }
             if (line.isBlank() || line.startsWith('#')) continue
             val fields = line.split(',')
             if (columns == null) {

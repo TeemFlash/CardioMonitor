@@ -69,10 +69,11 @@ class AnalysisRepository(
                 }
                 require(csv.hasHeader()) { "В CSV нет заголовка" }
                 dao.insertEcgSamples(ecg); dao.insertPulseReadings(pulse); dao.insertSpo2Readings(oxygen)
-                dao.updateSession(session.copy(endedAtMs = duration,
+                val started = csv.startedAtMs ?: 0L
+                dao.updateSession(session.copy(startedAtMs = started, endedAtMs = started + duration,
                     averageBpm = if (countBpm > 0) ((sumBpm + countBpm / 2) / countBpm).toInt() else null,
                     averageSpo2 = if (countSpo2 > 0) ((sumSpo2 + countSpo2 / 2) / countSpo2).toInt() else null,
-                    note = "$name • дата не записана прибором • повреждённых строк: ${csv.damaged}"))
+                    note = "$name${if (started == 0L) " • дата не записана прибором" else ""} • повреждённых строк: ${csv.damaged}"))
             }
         }
     }

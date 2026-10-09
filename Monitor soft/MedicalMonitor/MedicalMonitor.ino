@@ -225,7 +225,7 @@ int selectedItem = 0;
 int settingsSelected = 0;
 const int SETTINGS_COUNT = 3; // Wi-Fi, Bluetooth status, language
 bool fineGrid = true;
-bool recordingEnabled = true, wifiEnabled = true;
+bool wifiEnabled = true;
 uint8_t ecgGain = 1;
 uint8_t ecgMains = 50;
 EcgPlotBuffer ecgPlot;
@@ -233,6 +233,7 @@ uint32_t previousEcgBin=0;
 bool ecgPlotConnected=false;
 bool sdError = false;
 uint32_t sessionCommand = 0, sessionStart = 0;
+bool sessionTimeWritten=false;
 uint16_t activePpgEpoch=0;
 bool havePpgEpoch=false;
 uint32_t lastUi = 0, lastHeader = 0;
@@ -420,7 +421,16 @@ String nextLogFilename(const char* prefix) {
   return String(name);
 }
 
+void appendSessionTime() {
+  if(!logFileOpen || sessionTimeWritten)return;
+  uint64_t utc=localUtcMillis();
+  if(!utc)return;
+  uint64_t start=utc-uint32_t(millis()-sessionStart);
+  char row[80];snprintf(row,sizeof(row),"# started_at_unix_ms=%llu\n",(unsigned long long)start);
+  appendLog(row);sessionTimeWritten=true;
+}
 void closeLogFile() {
+  appendSessionTime();
   flushLogBuffer();
   if (logFileOpen) { logFile.flush(); logFile.close(); logFileOpen = false; }
   logUsed = 0;
@@ -428,14 +438,14 @@ void closeLogFile() {
 
 void openLogFile(const char* prefix, const char* header) {
   closeLogFile();
-  if (!sdAvailable || !recordingEnabled) return;
+  if (!sdAvailable) return;
   String name = nextLogFilename(prefix);
   if (name.isEmpty()) { sdError = true; return; }
   logFile = SD.open(name.c_str(), FILE_WRITE);
   if (!logFile || logFile.println(header) == 0) {
     sdError = true; sdAvailable = false; if (logFile) logFile.close(); return;
   }
-  logFileOpen = true; lastLogFlush = millis();
+  logFileOpen = true; sessionTimeWritten=false; lastLogFlush = millis();
   char metadata[80];
   snprintf(metadata,sizeof(metadata),"# ppg_auto=%u,default_led=60,led_limit=100\n",ppgAutoEnabled.load()?1:0);
   appendLog(metadata);
@@ -866,6 +876,11 @@ void drawHistoryDetail() {
     historyParagraph(historyDetailFile.c_str(),COL_ACCENT);
     if(historyAnalysis.ioError()) historyParagraph(HT(ReadError),COL_WARN);
     char text[160];
+    if(historyAnalysis.startedAtMs()) {
+      time_t started=historyAnalysis.startedAtMs()/1000;struct tm utc{};
+      gmtime_r(&started,&utc);strftime(text,sizeof(text),"%d.%m.%Y %H:%M UTC",&utc);
+      historyParagraph(text,COL_TEXT);
+    } else historyParagraph(UI("Date unknown","Дата неизвестна","Күні белгісіз"),COL_TEXT_DIM);
     snprintf(text,sizeof(text),"%s: %.1f",HT(Duration),double(historyAnalysis.durationMs())/1000);
     historyParagraph(text,COL_TEXT);
     if(historyCategory==0) {
@@ -1362,7 +1377,7 @@ void setup() {
   prefs.begin("medmon",false);
   currentLanguage=Language(prefs.getUChar("lang",LANG_RU));
   if (currentLanguage>=LANG_COUNT) currentLanguage=LANG_RU;
-  recordingEnabled=prefs.getBool("record",true);
+  // Measurements always record to an available SD; ignore the retired record toggle.
   wifiEnabled=prefs.getBool("wifi_on",true);
   ppgAutoEnabled.store(prefs.getBool("ppg_auto",true));
   ecgGain=prefs.getUChar("gain",1)%4;
@@ -1409,7 +1424,9 @@ void loop() {
   link.sd=sdAvailable;link.recording=logFileOpen;
   const char* active=logFileOpen?logFile.name():nullptr;
   if(active && active[0]=='/')++active;
+  serviceNetworkClock();
   localLink.service(link,active);
+  appendSessionTime();
   serviceHistoryScan();
   serviceHistory();
   if (logFileOpen && (logUsed>=3072 || now-lastLogFlush>=1000)) {

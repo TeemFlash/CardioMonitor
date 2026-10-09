@@ -26,6 +26,7 @@ fun DeviceScreen(viewModel: LiveMonitorViewModel) {
             Text("ESP32-C3 Super Mini", color = MedicalColors.Muted, fontSize = 13.sp)
             StatusPill(if (connected) "Соединение установлено" else "Прибор не подключён", connected)
             HorizontalDivider(color = MedicalColors.Border)
+            InfoRow("Время прибора", data?.utcMs?.let { dateLabel(it, "dd.MM.yyyy HH:mm") } ?: if (connected) "Ожидание NTP" else "Нет связи")
             InfoRow("Заряд аккумулятора", data?.battery?.let { "$it%" } ?: "Нет данных")
             InfoRow("Записи на microSD", if (data?.sd == true) data?.files?.toString() ?: "Подсчёт…" else "Нет карты / нет связи")
             InfoRow("Качество ЭКГ", if (data?.mode != 1) "ЭКГ не запущена" else if (data?.ecgOk == true) "Сигнал принят" else "Нет надёжного сигнала")

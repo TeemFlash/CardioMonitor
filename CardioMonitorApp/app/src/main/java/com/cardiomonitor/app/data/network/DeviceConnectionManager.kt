@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 data class DeviceSnapshot(val mode: Int, val bpm: Int?, val spo2: Int?, val battery: Int?,
     val finger: Boolean, val ecgOk: Boolean, val sd: Boolean, val recording: Boolean,
-    val files: Int?, val ecgBpm: Int?, val dropped: Long, val ecg: List<EcgSample>)
+    val files: Int?, val ecgBpm: Int?, val utcMs: Long?, val dropped: Long, val ecg: List<EcgSample>)
 
 /** Local LAN protocol v1. No cloud, pairing or transport encryption. */
 class DeviceConnectionManager(private val context: Context) {
@@ -100,7 +100,8 @@ class DeviceConnectionManager(private val context: Context) {
                                     frame.getInt("battery").takeIf { it in 0..100 },
                                     frame.getBoolean("finger"), frame.getBoolean("ecg_ok"),
                                     frame.getBoolean("sd"), frame.getBoolean("recording"),
-                                    frame.getInt("files").takeIf { it >= 0 }, frame.optInt("ecg_hr", -1).takeIf { it in 20..250 }, frame.getLong("dropped"), ecg)
+                                    frame.getInt("files").takeIf { it >= 0 }, frame.optInt("ecg_hr", -1).takeIf { it in 20..250 },
+                                    frame.optLong("utc_ms", 0).takeIf { it in 1704067200000L until 4102444800000L }, frame.getLong("dropped"), ecg)
                             }
                         }
                     } catch (e: CancellationException) { throw e }
