@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/cardio-hero.svg" alt="CardioMonitor — линия ЭКГ соединяет датчики, прибор и историю измерений" width="100%">
+  <img src="docs/cardio-hero.svg" alt="CardioMonitor: an ECG trace connects sensors, the device, and measurement history" width="100%">
 </p>
 
 <h1 align="center">CardioMonitor</h1>
 
 <p align="center">
-  Карманный прототип для наблюдения за ЭКГ, пульсом и SpO₂.<br>
-  Измерение на приборе · запись на microSD · просмотр истории на Android
+  An experimental device for viewing ECG, heart rate, and SpO₂.<br>
+  Measure on the device · record to microSD · review history on Android
 </p>
 
 <p align="center">
@@ -15,85 +15,85 @@
 
 ---
 
-CardioMonitor объединяет аналоговый сигнал ЭКГ и оптические данные RED/IR в одном устройстве на **ESP32-C3 Super Mini**. Прибор показывает текущие значения на цветном экране, сохраняет сеансы в CSV на microSD и позволяет просматривать историю без загрузки всего файла в память. Android-приложение **HearT** служит отдельным клиентом для текущих показаний и записей по локальной Wi-Fi-сети.
+CardioMonitor combines an analog ECG signal and optical RED/IR data in a device built around the **ESP32-C3 Super Mini**. It displays current readings on a color screen, saves sessions as CSV files on microSD, and reads history without loading an entire file into memory. The separate **HearT** Android app can view live readings and import recordings over a local Wi-Fi network.
 
 > [!IMPORTANT]
-> Это экспериментальный прототип, а не медицинский прибор. Показания и оценки истории не подтверждены клинической калибровкой и не предназначены для постановки диагноза.
+> This is an experimental prototype, not a medical device. Its readings and history summaries have not been clinically validated and must not be used for diagnosis.
 
-## Путь сигнала
+## From signal to recording
 
-| Шаг | Что происходит |
+| Step | What happens |
 |:--:|---|
-| **01 · Снять** | AD8232 передаёт ЭКГ через ADS1115; MAX30102 даёт оптические отсчёты RED/IR. |
-| **02 · Обработать** | ESP32 фильтрует ЭКГ, строит график и оценивает частоту; RF-алгоритм рассчитывает пульс и SpO₂ при пригодном сигнале. |
-| **03 · Показать** | ILI9341 320×240 выводит ЭКГ, пульс, SpO₂, состояние датчиков и меню на RU / EN / KZ. |
-| **04 · Сохранить** | Завершённые сеансы пишутся в CSV на microSD; история читается небольшими порциями. |
-| **05 · Открыть** | HearT получает текущие данные и импортирует записи по локальному Wi-Fi, без облачного сервиса. |
+| **01 · Capture** | The AD8232 sends the ECG signal through the ADS1115; the MAX30102 provides optical RED/IR samples. |
+| **02 · Process** | The ESP32 filters ECG, draws the waveform, and estimates heart rate. An RF algorithm estimates pulse and SpO₂ when the optical signal is usable. |
+| **03 · Display** | The 320 × 240 ILI9341 shows ECG, pulse, SpO₂, sensor status, and menus in English, Russian, or Kazakh. |
+| **04 · Record** | Completed sessions are saved as CSV files on microSD. History is read in small chunks. |
+| **05 · Review** | HearT receives live data and imports recordings over local Wi-Fi without a cloud service. |
 
-## Как выглядит прибор
+## On-device screens
 
-Превью экранов получены из функций отрисовки на синтетических данных; они показывают интерфейс, а не реальные измерения с человека.
+These previews come from the display drawing code with synthetic data. They show the interface, not measurements from a person.
 
-| ЭКГ | Пульс | SpO₂ |
+| ECG | Pulse | SpO₂ |
 |:---:|:---:|:---:|
-| ![Экран ЭКГ с графиком](Monitor%20soft/docs/light-interface/ecg.png) | ![Экран пульса](Monitor%20soft/docs/light-interface/pulse.png) | ![Экран насыщения кислородом](Monitor%20soft/docs/light-interface/oxygen.png) |
+| ![ECG screen with waveform](Monitor%20soft/docs/light-interface/ecg.png) | ![Pulse screen](Monitor%20soft/docs/light-interface/pulse.png) | ![Blood oxygen screen](Monitor%20soft/docs/light-interface/oxygen.png) |
 
-На приборе: **ЭКГ → Пульс → SpO₂ → История → Настройки**. Четыре сенсорные кнопки отвечают за движение по меню, подтверждение и возврат. [Подробнее об экранах и ограничениях превью](Monitor%20soft/docs/light-interface.md).
+The device menu contains **ECG → Pulse → SpO₂ → History → Settings**. Four touch buttons navigate, confirm, and go back. [Screen details and preview limitations](Monitor%20soft/docs/light-interface.md) (Russian).
 
-## Что внутри
+## Hardware
 
-| Узел | Назначение |
+| Component | Purpose |
 |---|---|
-| **ESP32-C3 Super Mini** | Сбор отсчётов, обработка, дисплей, настройки и локальный обмен. |
-| **AD8232 + ADS1115** | Аналоговый тракт ЭКГ и оцифровка. |
-| **MAX30102** | Оптический сигнал для пульса и предварительной оценки SpO₂. |
-| **ILI9341 2,4″** | Цветной SPI-дисплей 320×240. |
-| **microSD** | CSV-архив измерений; программа выполняется во flash ESP32. |
-| **4 × TTP223** | Управление интерфейсом на самом устройстве. |
+| **ESP32-C3 Super Mini** | Acquires samples, processes signals, drives the display, stores settings, and handles local communication. |
+| **AD8232 + ADS1115** | Analog ECG front end and digitization. |
+| **MAX30102** | Optical data for pulse and preliminary SpO₂ estimates. |
+| **2.4-inch ILI9341** | 320 × 240 color SPI display. |
+| **microSD** | CSV measurement archive; the program itself runs from the ESP32's flash memory. |
+| **4 × TTP223** | Touch controls for the device interface. |
 
-**Техническая особенность:** датчики обслуживает отдельная задача I²C. Она передаёт отсчёты через ограниченные очереди; основной цикл отвечает за экран, запись на SD и связь. Анализ истории читает CSV потоково, поэтому размер записи не превращается в требование держать её целиком в RAM.
+**The engineering challenge:** a dedicated I²C task reads the sensors and passes samples through bounded queues. The main loop handles the display, SD recording, and communication. History analysis streams CSV data, so a recording does not need to fit entirely in RAM.
 
-## Запустить проект
+## Get started
 
-**Прошивка.** Откройте [MedicalMonitor.ino](Monitor%20soft/MedicalMonitor/MedicalMonitor.ino) в Arduino IDE вместе со всей папкой `MedicalMonitor/`. Выберите **ESP32C3 Dev Module**, USB CDC при запуске, 4 МБ flash и `No OTA (2MB APP/2MB SPIFFS)`. Список библиотек, распиновка и порядок загрузки — в [руководстве по прошивке](Monitor%20soft/README.md#сборка-и-загрузка).
+**Firmware.** Open [MedicalMonitor.ino](Monitor%20soft/MedicalMonitor/MedicalMonitor.ino) in Arduino IDE with the entire `MedicalMonitor/` folder. Select **ESP32C3 Dev Module**, enable USB CDC on boot, use 4 MB flash, and select `No OTA (2MB APP/2MB SPIFFS)`. See the [firmware guide](Monitor%20soft/README.md) (Russian) for libraries, wiring, and upload steps.
 
-**Android.** Откройте [CardioMonitorApp](CardioMonitorApp/README.md) в Android Studio и соберите приложение. Оно не требуется для автономной работы прибора.
+**Android.** Open [CardioMonitorApp](CardioMonitorApp/README.md) in Android Studio and build the app. The device also works without it. The [Android guide](CardioMonitorApp/README.md) is currently in Russian.
 
-**Проверить алгоритмы без платы:**
+**Run algorithm tests without hardware:**
 
 ```sh
 python3 'Monitor soft/tests/run.py'
 ```
 
-**Подготовить и собрать прошивку через Arduino CLI:**
+**Prepare and compile the firmware with Arduino CLI:**
 
 ```sh
 python3 'Monitor soft/tools/build.py'
 ```
 
-Команда сборки не загружает прошивку на плату. Синтетические тесты и компиляция не заменяют проверку с реальными датчиками, дисплеем и SD.
+Compiling does not upload the firmware. Synthetic tests and a successful build do not replace checks with real sensors, the display, and an SD card.
 
-## Карта репозитория
+## Repository map
 
 ```text
 CardioMonitor/
 ├── Monitor soft/
-│   ├── MedicalMonitor/     прошивка Arduino: датчики, сигнал, дисплей, SD, Wi-Fi
-│   ├── tests/              нативные тесты алгоритмов и моделей оборудования
-│   ├── tools/              сборка, график сигнала и превью дисплея
-│   └── docs/               распиновка, интерфейс и заметки об анализе
-├── CardioMonitorApp/       Android-клиент HearT
-├── docs/cardio-hero.svg    оформление этой страницы
-└── .github/workflows/      автоматический запуск тестов прошивки
+│   ├── MedicalMonitor/     Arduino firmware: sensors, signals, display, SD, Wi-Fi
+│   ├── tests/              native tests for algorithms and hardware models
+│   ├── tools/              build script, signal plots, and display previews
+│   └── docs/               wiring, interface, and analysis notes
+├── CardioMonitorApp/       HearT Android client
+├── docs/cardio-hero.svg    artwork for this page
+└── .github/workflows/      automated firmware tests
 ```
 
-Для работы с кодом: [карта файлов прошивки](Monitor%20soft/README.md), [карта файлов Android](CardioMonitorApp/README.md), [локальный протокол](Monitor%20soft/docs/local-link.md), [обоснование оценок истории](Monitor%20soft/docs/history-analysis-medical-notes.md).
+More detail: [firmware file map](Monitor%20soft/README.md), [Android file map](CardioMonitorApp/README.md), [local communication protocol](Monitor%20soft/docs/local-link.md), and [history analysis notes](Monitor%20soft/docs/history-analysis-medical-notes.md). These detailed documents are currently in Russian.
 
-## Границы прототипа
+## Prototype limitations
 
-- График показывает относительную форму ЭКГ; диагностической расшифровки комплексов нет. Оптическая SpO₂ не подтверждена сравнением с медицинским прибором.
-- Проверки кода не подтверждают точность или безопасность собранного устройства. Перед измерениями на человеке нужна отдельная проверка аналогового тракта и питания.
-- При работе с электродами используйте автономное батарейное питание: не подключайте одновременно USB, зарядник или неизолированное измерительное оборудование.
-- Используемый RF-алгоритм имеет [собственное авторство и условия](Monitor%20soft/MedicalMonitor/Pulse%2BSpO2/MAX30102_by_RF-master/README.md); они не задают лицензию всему проекту.
+- The ECG graph shows a relative waveform; the firmware does not interpret ECG complexes for diagnosis. Its SpO₂ estimates have not been validated against a medical device.
+- Code tests do not establish measurement accuracy or electrical safety. The analog circuit and power supply need separate hardware verification before measurements on a person.
+- When electrodes touch a person, use standalone battery power. Do not connect USB, a charger, or non-isolated test equipment at the same time.
+- The included RF algorithm has [its own author and license terms](Monitor%20soft/MedicalMonitor/Pulse%2BSpO2/MAX30102_by_RF-master/README.md); those terms do not automatically license the entire project.
 
-<p align="center"><strong>От импульса на входе — к записи, которую можно изучить.</strong></p>
+<p align="center"><strong>From a signal at the input to a recording you can explore.</strong></p>

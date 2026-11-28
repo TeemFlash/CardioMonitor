@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
   <title id="title">CardioMonitor</title>
-  <desc id="desc">Абстрактная линия ЭКГ пересекает тёмную панель с подписями ECG, PULSE и SpO2</desc>
+  <desc id="desc">An abstract ECG trace crosses a dark panel labeled ECG, PULSE, and SpO2</desc>
   <defs>
     <linearGradient id="bg" x2="1" y2="1">
       <stop stop-color="#101d2b"/>
